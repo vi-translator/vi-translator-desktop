@@ -269,7 +269,9 @@ fn role_ar(name: &str) -> Option<String> {
 /// The name as the target language writes it. `reviewed`: a reviewed translation of the name alone
 /// (the downloaded translations can carry the names the game's people go by).
 pub fn name_in(lang: &str, name: &str, reviewed: Option<String>) -> String {
-    if !arabic_script(lang) {
+    // (no English letter in it: written already. A page read again kept its line, its name with it, and
+    // "بي-لوكس" was spelled again letter by letter: the Arabic ones dropped, "-" left)
+    if !arabic_script(lang) || !name.chars().any(|c| c.is_ascii_alphabetic()) {
         return name.to_string();
     }
     let low = name.to_lowercase();
@@ -832,6 +834,11 @@ mod tests {
         // (a name the list doesn't have: the downloaded translation of it)
         assert_eq!(name_in("ar", "Zorvath", Some("زورفاث".into())), "زورفاث");
         assert_eq!(name_in("hi", "Dobbs", None), "Dobbs");
+        // (a name written already stays as it is: a page read again kept its line, and "بي-لوكس" came back as "-")
+        assert_eq!(name_in("ar", "Bae-Luxe", None), "بي-لوكس");
+        for done in ["بي-لوكس", "دريكوان", "جيسون"] {
+            assert_eq!(name_in("ar", done, None), done);
+        }
         assert_eq!(transliterate("dennis"), "دينيس");
         assert_eq!(transliterate("bobby"), "بوبي");
         assert_eq!(transliterate("kyle"), "كايل");

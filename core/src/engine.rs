@@ -151,6 +151,18 @@ impl SizeLock {
         median
     }
 
+    /// This kind of text is `measured` tall now, locked at once: GTA VI's settings show "This is a subtitle." at
+    /// the size just picked (five lines in a row, the usual way, took minutes of a slow conversation).
+    fn set(&mut self, kind: &str, measured: f64) -> f64 {
+        if !Self::plausible(measured) {
+            return self.size(kind, measured);
+        }
+        self.drift.remove(kind);
+        self.locked.insert(kind.into(), measured);
+        self.store();
+        measured
+    }
+
     /// The picture now being read is `w`×`h`: sizes measured on a picture of another resolution are
     /// forgotten, and measured again on the next lines. True when they were.
     fn at_resolution(&mut self, w: u32, h: u32) -> bool {
@@ -295,6 +307,13 @@ static LINE_COLORS: std::sync::LazyLock<Mutex<HashMap<String, Vec<(String, Strin
 
 /// The same text (OCR's reading differences aside): for stacked lines (`la`, `lb`: their lines), the
 /// same lines one by one; else the whole text alike.
+/// GTA VI's settings' sample subtitle, "This is a subtitle.", shown at the size just picked (read at times
+/// without its "a").
+fn settings_sample(en: &str) -> bool {
+    let n: String = en.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
+    n == "thisisasubtitle" || n == "thisissubtitle"
+}
+
 fn same_text(a: &str, la: &[String], b: &str, lb: &[String]) -> bool {
     if !la.is_empty() && !lb.is_empty() {
         la.len() == lb.len() && la.iter().zip(lb).all(|(x, y)| ocr::similar(x, y))
@@ -1152,6 +1171,11 @@ impl Reader {
                     *ctx.live.screen_private.lock().unwrap() = layout.menu.iter().filter(|m| m.private).map(|m| [m.rect.x, m.rect.y, m.rect.w, m.rect.h]).collect();
                     layout.menu.retain(|m| !m.private);
                     for m in layout.menu.iter_mut() {
+                        // (a line of dialogue: its speaker's name as the language writes it, as a subtitle's is)
+                        let said = !m.name.is_empty();
+                        if said {
+                            m.name = speaker::name_in(&c.target_lang, &m.name, None);
+                        }
                         if m.fixed {
                             if m.ar.is_empty() {
                                 m.ar = m.en.clone();
@@ -1174,7 +1198,8 @@ impl Reader {
                         };
                         // a list item is one of the menu's known words, even when OCR garbled it (faint, greyed-out items)
                         // (also headings and short panel lines: the faint "Join Friends" title)
-                        if (m.item || m.heading || m.en.split_whitespace().count() <= 3) && !m.en.trim().starts_with('<') {
+                        // (not what someone says: "Kirk here." is no row of a menu, however alike)
+                        if !said && (m.item || m.heading || m.en.split_whitespace().count() <= 3) && !m.en.trim().starts_with('<') {
                             if let Some((en, ar)) = screens::menu_item_word(&m.en) {
                                 m.en = en.to_string();
                                 m.ar = ar.to_string();
@@ -1358,7 +1383,11 @@ impl Reader {
             // from the memory, or the translator (like a page's menu text: asked once, in the background,
             // shown when it comes); the contacts' names written as the speakers' are.
             if let (Some(f), Some(ocr)) = (frame, ocr_now) {
-                let found = if c.phone_text() {
+                // (the phone's screen is read whole, once it's still, not piece by piece here: see `phone_whole`.
+                // VI_TRANSLATOR_PHONE_PIECES=1 reads it the old way, to compare the two on the same phone)
+                let whole = c.phone_text() && std::env::var_os("VI_TRANSLATOR_PHONE_PIECES").is_none();
+                let phone_read = whole && phone_whole(ctx, &c, f, ocr);
+                let found = if c.phone_text() && !whole {
                     crate::phone::find_screen(&f.rgba, f.w, f.h)
                         // (a short light part, a Snapmatic post's caption: a phone only with its buttons up)
                         .or_else(|| crate::phone::find_screen_unsure(&f.rgba, f.w, f.h).filter(|_| crate::phone::phone_buttons(&crate::phone::read_buttons(ocr, &f.rgba, f.w, f.h))))
@@ -1442,40 +1471,10 @@ impl Reader {
                         let lang = c.target_lang.clone();
                         let mut out = Vec::new();
                         let read_btns = crate::phone::read_buttons(ocr, &f.rgba, f.w, f.h);
-                        let mut btns = Vec::new();
+                        let btns = phone_button_words(ctx, f, &read_btns, &mut menu_asked, &mut seq_counter, jobs, now);
                         {
                             let m = ctx.memory.lock().unwrap();
                             let cache = ctx.live.menu_cache.lock().unwrap();
-                            // the buttons' words at the bottom right ("SELECT", "BACK"): the layout's words for
-                            // them, else the memory's, else the translator's (asked once)
-                            for (r, en) in &read_btns {
-                                let title: String = en.split(' ').map(|w| { let mut c = w.chars(); c.next().map(|f| f.to_string() + &c.as_str().to_lowercase()).unwrap_or_default() }).collect::<Vec<_>>().join(" ");
-                                let ar = screens::button_word(&title)
-                                    .map(str::to_string)
-                                    .or_else(|| m.get(&title, &[], &[]).map(|(segs, _)| segs.iter().map(|s| s.0.as_str()).collect::<String>().trim().to_string()))
-                                    .or_else(|| cache.map.get(&title).cloned());
-                                match ar {
-                                    // (a button's word plain: "تراجع!" is "تراجع")
-                                    Some(ar) => {
-                                        // (its icon after it, as the game's: "SEND ✕")
-                                        let icon = crate::phone::button_icon(&f.rgba, f.w, f.h, *r).and_then(|ic| crate::phone::part_png(&f.rgba, f.w, f.h, ic, (0, 0, ic.2, ic.3), 40).map(|png| (ic, png)));
-                                        btns.push(serde_json::json!({
-                                            "rect": frac(*r), "en": en, "ar": ar.trim_end_matches(['!', '.', '!']).trim(),
-                                            "icon": icon.as_ref().map(|(_, png)| {
-                                                use base64::Engine as _;
-                                                format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png))
-                                            }),
-                                            "icon_rect": icon.map(|(ic, _)| frac(ic)),
-                                        }))
-                                    }
-                                    None => {
-                                        if menu_asked.insert(title.clone()) {
-                                            seq_counter += 1;
-                                            let _ = jobs.send(Job { area: MENU_TEXT.into(), seq: seq_counter, en: title, phrases: Vec::new(), icons: Vec::new(), line_h: 0.0, en_start: now, text_box: None, game_box: None, parts: Vec::new() });
-                                        }
-                                    }
-                                }
-                            }
                             for p in &pieces {
                                 if p.title {
                                     let fg = p.look.fg;
@@ -1627,7 +1626,7 @@ impl Reader {
                     None => {
                         // GTA VI's message bubble at the bottom right (see chat.rs): its translation in a
                         // bubble like it, above it. Read again only when its box changes.
-                        let chat = if c.phone_text() { crate::chat::find_bubble(&f.rgba, f.w, f.h) } else { None };
+                        let chat = if c.phone_text() && !phone_read { crate::chat::find_bubble(&f.rgba, f.w, f.h) } else { None };
                         let bubble = chat.and_then(|r| {
                             let frac_r = screens::Rect { x: r.0 as f64 / f.w as f64, y: r.1 as f64 / f.h as f64, w: r.2 as f64 / f.w as f64, h: r.3 as f64 / f.h as f64 };
                             let sig = screens::region_sig(f, &frac_r);
@@ -2018,7 +2017,19 @@ impl Reader {
                     if !allowed && is_new && c.cover_look() {
                         set_cover(&*ctx.sink, &ctx.live, &area.id, None);
                     }
-                    if allowed && (((known || settled) && !same_text(&st.candidate, &st.candidate_lines, &st.current, &st.current_lines)) || recolor) {
+                    // GTA VI's settings' sample line, up while the player picks another subtitle size: the same
+                    // text, another size — sent again, its new size and box (the same text was never sent again,
+                    // and the translation stayed at the size the line first had)
+                    let resized = !recolor
+                        && settings_sample(&st.current)
+                        && same_text(&st.candidate, &st.candidate_lines, &st.current, &st.current_lines)
+                        && st.line_boxes.and_then(|b| b.0).is_some_and(|tb| {
+                            let mut hs: Vec<u32> = words.iter().map(|w| w.rect.3).collect();
+                            hs.sort_unstable();
+                            let now_h = hs.get(hs.len() / 2).map_or(0.0, |&h| h as f64 / fh as f64);
+                            now_h > 0.0 && (now_h / tb[3] - 1.0).abs() > SIZE_DRIFT
+                        });
+                    if allowed && (((known || settled) && !same_text(&st.candidate, &st.candidate_lines, &st.current, &st.current_lines)) || recolor || resized) {
                         // Stable new text: translate it once. Colours are measured now (and again for a
                         // moment if there were none: see `colors_until`).
                         let prev_lines = std::mem::take(&mut st.current_lines);
@@ -2108,8 +2119,8 @@ impl Reader {
                         let mut hs: Vec<u32> = words.iter().map(|w| w.rect.3).collect();
                         hs.sort_unstable();
                         let measured = hs.get(hs.len() / 2).map(|&h| h as f64 / fh as f64).unwrap_or(0.0);
-                        // same size for every line of this area
-                        let line_h = sizes.size(&area.id, measured);
+                        // same size for every line of this area (the game's settings' sample line: its new size at once)
+                        let line_h = if settings_sample(&en) { sizes.set(&area.id, measured) } else { sizes.size(&area.id, measured) };
                         st.current_start = Some(en_start);
                         // (the text seen there now has its seq: its translation takes its black box down)
                         {
@@ -2172,6 +2183,276 @@ static PHONE_QUAD: Mutex<Option<([(f64, f64); 4], [(f64, f64); 4], Instant)>> = 
 /// When a chat's header was last read on the phone (a chat's overlay only: see the phone block).
 static PHONE_CHAT_AT: Mutex<Option<Instant>> = Mutex::new(None);
 static PHONE_SCREEN: Mutex<Option<((u32, u32, u32, u32), Instant)>> = Mutex::new(None);
+
+/// The phone's buttons at the bottom right ("SELECT", "BACK"), each with its word: the layout's words for
+/// them, else the memory's, else the translator's (asked once).
+fn phone_button_words(ctx: &Context, f: &FrameData, read_btns: &[((u32, u32, u32, u32), String)], menu_asked: &mut std::collections::HashSet<String>, seq_counter: &mut u64, jobs: &mpsc::Sender<Job>, now: Instant) -> Vec<serde_json::Value> {
+    let (w, h) = (f.w as f64, f.h as f64);
+    let frac = |r: (u32, u32, u32, u32)| [r.0 as f64 / w, r.1 as f64 / h, r.2 as f64 / w, r.3 as f64 / h];
+    let m = ctx.memory.lock().unwrap();
+    let cache = ctx.live.menu_cache.lock().unwrap();
+    let mut btns = Vec::new();
+    for (r, en) in read_btns {
+        let title: String = en.split(' ').map(|w| { let mut c = w.chars(); c.next().map(|f| f.to_string() + &c.as_str().to_lowercase()).unwrap_or_default() }).collect::<Vec<_>>().join(" ");
+        let ar = screens::button_word(&title)
+            .map(str::to_string)
+            .or_else(|| m.get(&title, &[], &[]).map(|(segs, _)| segs.iter().map(|s| s.0.as_str()).collect::<String>().trim().to_string()))
+            .or_else(|| cache.map.get(&title).cloned());
+        match ar {
+            // (a button's word plain: "تراجع!" is "تراجع")
+            Some(ar) => {
+                // (its icon after it, as the game's: "SEND ✕")
+                let icon = crate::phone::button_icon(&f.rgba, f.w, f.h, *r).and_then(|ic| crate::phone::part_png(&f.rgba, f.w, f.h, ic, (0, 0, ic.2, ic.3), 40).map(|png| (ic, png)));
+                btns.push(serde_json::json!({
+                    "rect": frac(*r), "en": en, "ar": ar.trim_end_matches(['!', '.', '!']).trim(),
+                    "icon": icon.as_ref().map(|(_, png)| {
+                        use base64::Engine as _;
+                        format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png))
+                    }),
+                    "icon_rect": icon.map(|(ic, _)| frac(ic)),
+                }))
+            }
+            None => {
+                if menu_asked.insert(title.clone()) {
+                    *seq_counter += 1;
+                    let _ = jobs.send(Job { area: MENU_TEXT.into(), seq: *seq_counter, en: title, phrases: Vec::new(), icons: Vec::new(), line_h: 0.0, en_start: now, text_box: None, game_box: None, parts: Vec::new() });
+                }
+            }
+        }
+    }
+    btns
+}
+
+/// The offline translator for the phone's messages, kept from one reading to the next (it holds a model).
+static PHONE_TR: Mutex<Option<Translator>> = Mutex::new(None);
+
+/// The phone's screen as read (phone_read.rs's `page`: its title and its pieces), for the overlay
+/// ({"title", "items": [{"k", "from", "color", "en", "text"}]}): each message translated as a line of the
+/// game's is — the memory first, then the translator in use. A message cut off at the screen's top or bottom
+/// after a scroll — a piece of one the memory has whole — is shown as the whole message's translation (the
+/// piece alone isn't in it, and each scroll showed another piece: another translation asked each time).
+fn phone_page(c: &Config, memory: &Arc<Mutex<memory::Memory>>, model_dir: PathBuf, title: String, items: Vec<crate::phone_read::Item>) -> anyhow::Result<serde_json::Value> {
+    let translate = |tr: &mut Translator, en: &str| {
+        let whole = {
+            let m = memory.lock().unwrap();
+            (m.lang() == c.target_lang && !m.knows(en)).then(|| m.containing(en)).flatten()
+        };
+        match whole {
+            Some((_, ar, _)) => Ok(ar),
+            None => translate_spoken(tr, c, memory, en, &[], &[], &|_| {}).0.map(|segs| segs.iter().map(|s| s.0.as_str()).collect::<String>()),
+        }
+    };
+    let needs = |it: &crate::phone_read::Item| it.k != "card" && it.en.chars().any(char::is_alphabetic);
+    let mut got: Vec<Option<anyhow::Result<String>>> = if c.engine == "local" {
+        // (the offline translator: one, kept — it holds a model — a message after another)
+        let mut guard = PHONE_TR.lock().unwrap();
+        let tr = guard.get_or_insert_with(|| Translator::new(model_dir));
+        items.iter().map(|it| needs(it).then(|| translate(tr, &it.en))).collect()
+    } else {
+        // (a translator on the internet — DeepL, Claude: all the messages asked at once, the screen's translation
+        // there in the time of its slowest one, not of them all)
+        std::thread::scope(|s| {
+            let asked: Vec<_> = items
+                .iter()
+                .map(|it| {
+                    needs(it).then(|| {
+                        let dir = model_dir.clone();
+                        s.spawn(move || translate(&mut Translator::new(dir), &it.en))
+                    })
+                })
+                .collect();
+            asked.into_iter().map(|h| h.map(|h| h.join().unwrap_or_else(|_| Err(anyhow::anyhow!("the translator stopped"))))).collect()
+        })
+    };
+    let mut failed = None;
+    let mut out = Vec::new();
+    for (it, got) in items.iter().zip(got.drain(..)) {
+        let text = match got {
+            Some(Ok(t)) => t,
+            // (not translated — refused, came back in English: its English, in its place)
+            Some(Err(e)) => {
+                failed.get_or_insert(e);
+                it.en.clone()
+            }
+            // (a place's or a contact's name: as the game writes it — the map says the same — unless reviewed)
+            None if it.k == "card" => memory.lock().unwrap().get(&it.en, &[], &[]).filter(|(_, src)| src == "reviewed").map(|(segs, _)| segs.iter().map(|s| s.0.as_str()).collect::<String>()).unwrap_or_else(|| it.en.clone()),
+            None => it.en.clone(),
+        };
+        let from = if it.from.is_empty() { String::new() } else { speaker::name_in(&c.target_lang, &it.from, None) };
+        out.push(serde_json::json!({ "k": it.k, "from": from, "color": it.color, "en": it.en, "text": text.trim() }));
+    }
+    // (nothing translated at all: why, said — the language not downloaded, no key)
+    if let Some(e) = failed.filter(|_| out.iter().all(|o| o["k"] == "card" || o["text"] == o["en"])) {
+        return Err(e);
+    }
+    // (a group's chat is its people's names: each written as the speakers' are — "Moses Watkins, Jason, L…")
+    let title = title
+        .split(',')
+        .map(|n| n.trim())
+        .filter(|n| !n.is_empty())
+        .map(|n| match n.strip_suffix('…') {
+            Some(cut) => format!("{}…", speaker::name_in(&c.target_lang, cut, None)),
+            None => speaker::name_in(&c.target_lang, n, None),
+        })
+        .collect::<Vec<_>>()
+        .join(if langs::get(&c.target_lang).rtl { "، " } else { ", " });
+    Ok(serde_json::json!({ "title": title, "items": out }))
+}
+
+/// The phone being read whole (phone_read.rs).
+struct PhoneRead {
+    watch: crate::phone_read::Watch,
+    /// where the second phone was put (the phone's box then, fractions of the picture), and the screen's colour
+    at: [f64; 4],
+    bg: String,
+    /// when the phone's own buttons were last seen, and the phone
+    buttons_at: Instant,
+    seen: Instant,
+    /// when the buttons were last read (a few times a second), and whether they're a phone's (what tells a
+    /// phone: their words aren't put beside them here — "تراجع" by "BACK" was in the way, and no help)
+    buttons: (Instant, bool),
+    /// the last reading, translated, and the one awaited
+    shown: Option<serde_json::Value>,
+    rx: Option<mpsc::Receiver<anyhow::Result<serde_json::Value>>>,
+}
+static PHONE_READ: Mutex<Option<PhoneRead>> = Mutex::new(None);
+
+/// GTA VI's phone read whole (phone_read.rs): once its screen is still, its picture is read in one go and
+/// its messages translated; they're drawn in a second phone put beside the game's once and left there (the
+/// hand sways the phone: its translation doesn't move). True when a phone is up — one with text on it, and
+/// its buttons at the bottom right read now or a moment ago (a light doorway has none; the phone behind the
+/// pause menu is a blur).
+fn phone_whole(ctx: &Context, c: &Config, f: &FrameData, ocr: &Ocr) -> bool {
+    use crate::phone_read as pr;
+    let now = Instant::now();
+    let since = |t: Instant| now.saturating_duration_since(t);
+    let mut guard = PHONE_READ.lock().unwrap();
+    // (a phone with text on it: behind the pause menu it's a blur)
+    let found = crate::phone::find_phone(&f.rgba, f.w, f.h)
+        .map(|s| crate::phone::steady_screen(&mut PHONE_SCREEN.lock().unwrap(), s, now))
+        .map(|scr| (scr, pr::sig(&f.rgba, f.w, f.h, pr::corners(scr))))
+        .filter(|(_, (_, detail))| *detail >= pr::DETAIL_MIN);
+    let Some((scr, (sig, _))) = found else {
+        // (missed in a frame or two: what's shown stays up for a moment)
+        let held = guard.as_ref().is_some_and(|s| since(s.seen) < Duration::from_millis(700));
+        if held {
+            *ctx.live.phone_seen.lock().unwrap() = Some(now);
+        }
+        return held;
+    };
+    // (the buttons at the bottom right, read a few times a second: they stay where they are)
+    let read_now = !guard.as_ref().is_some_and(|s| since(s.buttons.0) < Duration::from_millis(300));
+    let is_phone = if read_now {
+        let read = crate::phone::read_buttons(ocr, &f.rgba, f.w, f.h);
+        // (a phone's buttons, or "BACK" alone: a short chat has no "SCROLL")
+        crate::phone::phone_buttons(&read) || read.iter().any(|(_, t)| t == "BACK")
+    } else {
+        guard.as_ref().is_some_and(|s| s.buttons.1)
+    };
+    // (put where the phone is, a phone's shape whatever was found of it — its screen, its lower half, the white
+    // phone whole — and as tall as the picture has room for: more of its text fits)
+    let (w, h) = (f.w as f64, f.h as f64);
+    let place = || {
+        let pw = (scr.2 as f64 / w).clamp(0.16, 0.24);
+        let ph = (pw * w * 1.9 / h).min(0.76);
+        let b = crate::phone::screen_bg(&f.rgba, f.w, f.h, scr, scr.1, scr.1 + scr.3);
+        ([scr.0 as f64 / w, (1.0 - ph) / 2.0, scr.2 as f64 / w, ph], format!("#{:02x}{:02x}{:02x}", b[0], b[1], b[2]))
+    };
+    // (put away for three seconds and raised again, or no phone's buttons for as long: read and placed anew)
+    if !guard.as_ref().is_some_and(|s| since(s.seen) < Duration::from_secs(3) && since(s.buttons_at) < Duration::from_secs(3)) {
+        *guard = is_phone.then(|| {
+            let (at, bg) = place();
+            PhoneRead { watch: Default::default(), at, bg, buttons_at: now, seen: now, buttons: (now, true), shown: None, rx: None }
+        });
+    }
+    let Some(s) = guard.as_mut() else { return false };
+    s.seen = now;
+    if read_now {
+        s.buttons = (now, is_phone);
+    }
+    if is_phone {
+        s.buttons_at = now;
+    }
+    // (left where it was put — the hand sways the phone, what's found of it changes from frame to frame — until
+    // the phone is more than half its width to one side of there)
+    if (scr.0 as f64 / w + scr.2 as f64 / w / 2.0 - s.at[0] - s.at[2] / 2.0).abs() > s.at[2] / 2.0 {
+        (s.at, s.bg) = place();
+    }
+    if let Some(got) = s.rx.as_ref().and_then(|rx| match rx.try_recv() {
+        Err(mpsc::TryRecvError::Empty) => None,
+        got => Some(got),
+    }) {
+        s.rx = None;
+        match got {
+            Ok(Ok(v)) => {
+                // (the same screen read again — its pieces read alike: what's shown stays, word for word. Its first
+                // and last pieces aside: a message cut off at the screen's top or bottom is read a line more or less
+                // from one reading to the next)
+                let starts = |v: &serde_json::Value| v["items"].as_array().map(|a| a.iter().map(|i| i["en"].as_str().unwrap_or("").to_lowercase()).collect::<Vec<_>>()).unwrap_or_default();
+                let same = s.shown.as_ref().is_some_and(|old| {
+                    let (a, b) = (starts(old), starts(&v));
+                    let inner = |x: &[String]| if x.len() >= 3 { x[1..x.len() - 1].to_vec() } else { x.to_vec() };
+                    let (a, b) = (inner(&a), inner(&b));
+                    a.len() == b.len() && a.iter().zip(&b).all(|(a, b)| a == b || ocr::similar(a, b))
+                });
+                s.watch.answered(same);
+                if !same {
+                    s.shown = Some(v);
+                }
+            }
+            // (a failure: said, and asked again after a longer wait each time)
+            Ok(Err(e)) => {
+                ctx.sink.emit("status-msg", serde_json::Value::String(format!("Phone: {e:#}")));
+                s.watch.answered(true);
+            }
+            Err(_) => {}
+        }
+    }
+    let due = s.watch.due(sig, now);
+    if due && s.rx.is_none() && is_phone {
+        if let Some(shot) = pr::shot(f, scr) {
+            s.watch.asked(now);
+            // (the screen's colour as it is now, still: when the phone was first seen it was on its way up)
+            let b = crate::phone::screen_bg(&f.rgba, f.w, f.h, scr, scr.1, scr.1 + scr.3);
+            s.bg = format!("#{:02x}{:02x}{:02x}", b[0], b[1], b[2]);
+            // (read here, in one go — a tenth of a second, once a still screen — and its messages translated on
+            // their own thread, with their own translator: the subtitles' never waits for the phone's)
+            match ocr.lines_with(&shot.crop, ocr::Prep::Brightest) {
+                Ok(lines) => {
+                    let (title, items) = pr::page(lines, shot.col, shot.bottom, &|l| shot.tint(l), &|l| shot.ink(l));
+                    let (tx, rx) = mpsc::channel();
+                    s.rx = Some(rx);
+                    let (c, dir, memory) = (c.clone(), ctx.paths.model_dir(), ctx.memory.clone());
+                    std::thread::spawn(move || {
+                        let _ = tx.send(phone_page(&c, &memory, dir, title, items));
+                    });
+                }
+                Err(e) => {
+                    ctx.sink.emit("status-msg", serde_json::Value::String(format!("Phone: {e:#}")));
+                    s.watch.answered(true);
+                }
+            }
+        }
+    }
+    let v = serde_json::json!({
+        "screen": s.at,
+        "screen_bg": s.bg,
+        "read": s.shown,
+        // (nothing to show yet: its first reading on its way. Once something's shown it stays, as it is, until a
+        // reading differs: faded with "…" whenever the screen seemed to move, it blinked on and off on a phone held
+        // still — a night or a sunset's light, a dim screen found a little bigger or smaller each frame — though
+        // what it said didn't change)
+        "wait": s.shown.is_none(),
+    });
+    *ctx.live.phone_seen.lock().unwrap() = Some(now);
+    let mut up = ctx.live.phone.lock().unwrap();
+    if up.as_ref() != Some(&v) {
+        *up = Some(v.clone());
+        ctx.live.phone_active.store(true, std::sync::atomic::Ordering::Relaxed);
+        ctx.sink.emit("phone", v);
+    }
+    true
+}
 
 fn translate_loop(ctx: Context, latest: Arc<Mutex<HashMap<String, u64>>>, jobs: mpsc::Receiver<Job>, present: mpsc::Sender<PMsg>) {
     let Context { cfg, live: shared, memory, sink, paths } = ctx;
@@ -2608,6 +2889,22 @@ mod size_lock_tests {
     }
 
     #[test]
+    fn the_settings_sample_line_locks_its_size_at_once() {
+        let mut l = SizeLock::default();
+        assert_eq!(measured(&mut l, "subtitles", 0.035), 0.035);
+        // (Large picked: half a line's drift on the way, then the sample line)
+        assert_eq!(l.size("subtitles", 0.053), 0.035);
+        assert_eq!(l.set("subtitles", 0.053), 0.053);
+        // back to Small: the next line has it
+        assert_eq!(l.set("subtitles", 0.034), 0.034);
+        assert_eq!(l.size("subtitles", 0.033), 0.034);
+        // (a failed reading changes nothing)
+        assert_eq!(l.set("subtitles", 0.0), 0.034);
+        assert!(settings_sample("This is a subtitle.") && settings_sample("This is subtitle."));
+        assert!(!settings_sample("Lucia: This is a subtitle, huh?") && !settings_sample("This is it."));
+    }
+
+    #[test]
     fn sizes_saved_before_the_resolution_was_kept_stay() {
         let mut l: SizeLock = serde_json::from_str(r#"{"locked":{"subtitles":0.03}}"#).unwrap();
         assert!(!l.at_resolution(1920, 1080));
@@ -2733,5 +3030,34 @@ mod english_color_tests {
         let icons = vec!["data:x".to_string()];
         let segs = with_phrase_colors(english_segments("Press ⟦1⟧ to follow Nate", &icons), &[("Nate".into(), "#ff86bf".into()), ("Lucia".into(), "#ff86bf".into())]);
         assert_eq!(segs, vec![("Press ".to_string(), None), (String::new(), Some("icon:data:x".to_string())), (" to follow ".to_string(), None), ("Nate".to_string(), Some("#ff86bf".to_string()))]);
+    }
+}
+
+#[cfg(test)]
+mod phone_page_tests {
+    use super::*;
+    use crate::phone_read::Item;
+
+    /// A phone's reading for the overlay: a message the memory knows comes from it, with no translator asked;
+    /// one that can't be translated (a translator with no server set) stays in English, in its place; an
+    /// attachment's name stays as the game writes it; the chat's people are written as the speakers are.
+    #[test]
+    fn a_phone_s_messages_are_translated_the_memory_first() {
+        let tmp = std::env::temp_dir().join(format!("vi-phone-page-{}", std::process::id()));
+        let memory = Arc::new(Mutex::new(memory::Memory::load(tmp.clone(), "ar")));
+        memory.lock().unwrap().put("Thanks man.", &vec![("شكرًا يا رجل.".to_string(), None)], "reviewed");
+        let mut c = Config::default();
+        c.engine = "libre".into();
+        let item = |k: &'static str, from: &str, en: &str| Item { k, from: from.into(), color: if from.is_empty() { String::new() } else { "#5c8259".into() }, en: en.into() };
+        let items = vec![item("label", "", "???"), item("msg", "Jason", "Thanks man."), item("me", "", "All good here."), item("card", "", "Buckskin Swamp")];
+        let v = phone_page(&c, &memory, tmp.clone(), "Moses Watkins, Jason, L…".into(), items).unwrap();
+        let got: Vec<(&str, &str)> = v["items"].as_array().unwrap().iter().map(|i| (i["k"].as_str().unwrap(), i["text"].as_str().unwrap())).collect();
+        assert_eq!(got, [("label", "???"), ("msg", "شكرًا يا رجل."), ("me", "All good here."), ("card", "Buckskin Swamp")]);
+        assert_eq!(v["items"][1]["color"], "#5c8259");
+        assert_ne!(v["items"][1]["from"], "Jason", "the sender's name in the language's letters");
+        assert!(v["title"].as_str().unwrap().ends_with('…') && !v["title"].as_str().unwrap().contains("Moses"), "{}", v["title"]);
+        // (nothing translated at all: why, not a screen of English)
+        assert!(phone_page(&c, &memory, tmp.clone(), String::new(), vec![item("msg", "", "All good here.")]).is_err());
+        let _ = std::fs::remove_dir_all(tmp);
     }
 }

@@ -220,6 +220,9 @@ pub struct OptionInfo {
     pub about: serde_json::Value,
     /// on unless the profile says otherwise
     pub on: bool,
+    /// another switch this one takes the place of (`replaces: "pause_menu"`): off while this one is on —
+    /// a part of a page translated alone, instead of the whole page
+    pub replaces: String,
 }
 
 pub struct Pages {
@@ -563,9 +566,11 @@ impl Pages {
     }
 
     /// Is a switch on in the profile? The app's own switches as the profile has them; one the script
-    /// declares as the profile set it, else the script's default.
+    /// declares as the profile set it, else the script's default — and off, whatever it's set to, while a
+    /// switch that replaces it is on.
     pub fn switch_on(&self, opts: &crate::config::ProfileOpts, option: &str) -> bool {
-        option.is_empty() || opts.more.get(option).copied().unwrap_or_else(|| self.options.iter().find(|o| o.id == option).is_none_or(|o| o.on))
+        let set = |id: &str| opts.more.get(id).copied().unwrap_or_else(|| self.options.iter().find(|o| o.id == id).is_none_or(|o| o.on));
+        option.is_empty() || (set(option) && !self.options.iter().any(|o| o.replaces == option && o.id != option && set(&o.id)))
     }
 }
 
@@ -598,7 +603,7 @@ globalThis.pages = Object.freeze({
   option(o) {
     if (!o || typeof o.id !== "string" || !/^[a-z0-9_]{1,32}$/.test(o.id)) throw new Error("a switch needs an id (a-z, 0-9, _)");
     const text = (v) => (typeof v === "string" ? v : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).filter(([, t]) => typeof t === "string")) : "");
-    __options.set(o.id, { id: o.id, name: text(o.name) || o.id, about: text(o.about), on: o.on !== false });
+    __options.set(o.id, { id: o.id, name: text(o.name) || o.id, about: text(o.about), on: o.on !== false, replaces: typeof o.replaces === "string" ? o.replaces : "" });
   },
 });
 function __frame() {
@@ -1615,6 +1620,16 @@ mod tests {
         o.more.insert("heists".into(), true);
         o.more.insert("camp".into(), false);
         assert!(p.switch_on(&o, "heists") && !p.switch_on(&o, "camp") && p.switch_on(&o, ""));
+        // a switch that replaces another: the other is off while it's on, and as it was set once it's off again
+        let p = Pages::load(r#"
+            pages.option({ id: "menu", name: "Menu" });
+            pages.option({ id: "log", name: "The menu's log alone", on: false, replaces: "menu" });"#).expect("loads");
+        let mut o = crate::config::ProfileOpts::default();
+        assert!(p.switch_on(&o, "menu") && !p.switch_on(&o, "log"));
+        o.more.insert("log".into(), true);
+        assert!(!p.switch_on(&o, "menu") && p.switch_on(&o, "log"));
+        o.more.insert("log".into(), false);
+        assert!(p.switch_on(&o, "menu"));
         assert_eq!(version_of("// pages-version: 7\npages.add({id:'x'})"), 7);
         assert!(runs_here("// pages-version: 7\n// requires-app: 0.9.3\n"));
         assert!(runs_here(&format!("// requires-app: {}\n", env!("CARGO_PKG_VERSION"))));

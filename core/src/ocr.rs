@@ -15,6 +15,38 @@ pub trait TextEngine {
     fn max_dim(&self) -> u32 {
         2600
     }
+    /// The picture's lines of text, each as it lies (see `TextLine`): for text that isn't level — GTA VI's
+    /// phone, held tilted in the hand. The engine's own where it knows a line's corners (Apple Vision); else
+    /// from `read`'s words (`lines_of`).
+    fn read_lines(&self, bgra: &[u8], w: u32, h: u32) -> Result<Vec<TextLine>> {
+        Ok(lines_of(self.read(bgra, w, h)?))
+    }
+}
+
+/// A reading's words as its lines, each as it lies: a line runs from its first word's middle to its last
+/// one's (Windows' reader and Tesseract give each word its own box: along a tilted line they step down or up),
+/// and its text is as tall as its words' boxes are, most of them (the box round a whole tilted line is twice
+/// as tall as its letters).
+pub fn lines_of(words: Vec<RawWord>) -> Vec<TextLine> {
+    let mut by_line: std::collections::BTreeMap<u32, Vec<RawWord>> = Default::default();
+    for word in words {
+        by_line.entry(word.line).or_default().push(word);
+    }
+    by_line
+        .into_values()
+        .map(|mut ws| {
+            ws.sort_by(|a, b| a.x.total_cmp(&b.x));
+            let (first, last) = (&ws[0], &ws[ws.len() - 1]);
+            let mut hs: Vec<f64> = ws.iter().map(|w| w.h).collect();
+            hs.sort_by(f64::total_cmp);
+            TextLine {
+                t: ws.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" "),
+                l: [first.x, first.y + first.h / 2.0],
+                r: [last.x + last.w, last.y + last.h / 2.0],
+                h: hs[hs.len() / 2],
+            }
+        })
+        .collect()
 }
 
 /// A word as the engine reports it, in the (prepared) image's pixels.
@@ -24,6 +56,16 @@ pub struct RawWord {
     pub x: f64,
     pub y: f64,
     pub w: f64,
+    pub h: f64,
+}
+
+/// A line of text as it lies in a picture: its words, the middle of its left and right ends and its text's
+/// height — the picture's pixels, from its top left.
+#[derive(Clone, Debug)]
+pub struct TextLine {
+    pub t: String,
+    pub l: [f64; 2],
+    pub r: [f64; 2],
     pub h: f64,
 }
 
@@ -197,6 +239,13 @@ impl Ocr {
             }
         }
         Ok((best, !unsure, first_kept))
+    }
+
+    /// The crop's lines of text, each as it lies (`TextEngine::read_lines`), in the crop's pixels.
+    pub fn lines_with(&self, crop: &Crop, mode: Prep) -> Result<Vec<TextLine>> {
+        let (bgra, w, h, back) = Self::preprocess(crop, mode, self.engine.max_dim());
+        let scaled = |p: [f64; 2]| [p[0] * back, p[1] * back];
+        Ok(self.engine.read_lines(&bgra, w, h)?.into_iter().map(|l| TextLine { t: l.t, l: scaled(l.l), r: scaled(l.r), h: l.h * back }).collect())
     }
 
     pub fn recognize_with(&self, crop: &Crop, mode: Prep) -> Result<Vec<Word>> {

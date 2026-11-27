@@ -2447,7 +2447,7 @@ async function drawLookPreviews(form) {
     const box = document.createElement("div");
     stage.appendChild(box);
     // (the game's size, as "Match the game's text size" gives it; the style's look otherwise)
-    const px = AS.matchedPx(Object.assign({}, area, { match_size: true }), tb[3], H);
+    const px = AS.matchedPx(Object.assign({}, area, { match_size: true }), tb[3], H, cover ? AS.COVER_MATCH : 0);
     AS.renderBox(box, [[text || LOOK_LINE, null]], L.style, H / 360, area.font_scale, L.placement, L.area, px);
     AS.placeAtText(box, L.placement, tb, tb[3], W, H, 0, 0, W, H, null, { min: AS.fxOf(cfg.fx_view || cfg.area_fx, area.id).cover_min });
   }
@@ -2476,10 +2476,13 @@ async function renderPages() {
   }
   o.more = o.more || {};
   const isOn = (opt) => (opt.id in o.more ? o.more[opt.id] : opt.on);
+  // (a switch another one replaces while that one is on, "Brief text only" for the pause menu: shown off, and
+  // not to be turned on, until the other is off — its own setting kept for then)
+  const replaced = new Set(script.options.filter((opt) => opt.replaces && isOn(opt)).map((opt) => opt.replaces));
   // the switches the game's script declares (its pages come with layout updates)
   const declared = script.options.map((opt) => `
     <div class="card">
-      <label class="check" style="font-weight:600"><input type="checkbox" data-more="${AS.esc(opt.id)}" ${isOn(opt) ? "checked" : ""}/> ${AS.esc(scriptText(opt.name) || opt.id)}</label>
+      <label class="check" style="font-weight:600"><input type="checkbox" data-more="${AS.esc(opt.id)}" ${replaced.has(opt.id) ? "disabled" : isOn(opt) ? "checked" : ""}/> ${AS.esc(scriptText(opt.name) || opt.id)}</label>
       ${scriptText(opt.about) ? `<p class="muted small" style="margin:6px 0 0">${AS.esc(scriptText(opt.about))}</p>` : ""}
     </div>`).join("");
   // (GTA VI's phone in the hand — its WhatUp chats translated on a second phone beside it: shown or not, the player's)
@@ -2493,7 +2496,13 @@ async function renderPages() {
       <div class="field"><label>${t("Title font")}</label><select id="pf-title">${fontOptions(o.title_font)}</select></div>
       <div class="field" style="margin-top:10px"><label>${t("Reason and button font")}</label><select id="pf-text">${fontOptions(o.text_font)}</select></div>
     </div>`;
-  f.querySelectorAll("[data-more]").forEach((el) => el.addEventListener("change", () => { o.more[el.dataset.more] = el.checked; setShown("page", el.dataset.more, el.checked); save(); }));
+  f.querySelectorAll("[data-more]").forEach((el) => el.addEventListener("change", () => {
+    o.more[el.dataset.more] = el.checked;
+    setShown("page", el.dataset.more, el.checked);
+    save();
+    // (a switch that replaces another: that one's box drawn again, off or back as it was)
+    if (script.options.some((opt) => opt.id === el.dataset.more && opt.replaces)) renderPages();
+  }));
   if ($("pf-phone")) $("pf-phone").addEventListener("change", (e) => { cfg.phone_text = e.target.checked; save(); });
   for (const [id, key] of [["pf-title", "title_font"], ["pf-text", "text_font"]]) {
     const sel = $(id);

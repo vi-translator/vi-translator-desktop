@@ -58,9 +58,28 @@ fn read(cam: &mut Camera) -> Result<(u32, u32, Vec<u8>)> {
         let (w, h) = img.dimensions();
         return Ok((w, h, img.into_raw()));
     }
+    let res = buf.resolution();
+    if buf.source_frame_format() == FrameFormat::YUYV
+        && let Some(rgba) = yuyv_rgba(buf.buffer(), res.width(), res.height())
+    {
+        return Ok((res.width(), res.height(), rgba));
+    }
     let img = buf.decode_image::<RgbAFormat>().map_err(|e| anyhow!("{e}"))?;
     let (w, h) = img.dimensions();
     Ok((w, h, img.into_raw()))
+}
+
+/// A YUYV frame as RGBA, in the colour standard of a picture its size: BT.709 for HD, BT.601 below (as the
+/// Windows reader takes a card that doesn't say). nokhwa's own converter is BT.601 whatever the size: an HD
+/// game's colours came out with their green too low (the pause menu's purple (149, 90, 136) as (144, 81, 134)),
+/// and a box drawn in that colour over the game on a TV showed pinker than the game around it.
+/// `None`: not a YUYV frame's bytes (another layout under the name), left to nokhwa. (A frame's bytes, and a few
+/// more: macOS hands a 1280×720 one over with a row's worth after it, 1 845 760 bytes for 1 843 200. Not half as
+/// many again: that is a 4:2:0 layout's size, or a 10-bit one's.)
+fn yuyv_rgba(data: &[u8], w: u32, h: u32) -> Option<Vec<u8>> {
+    let color = crate::capture::YuvColor { bt709: h >= 720, full_range: false };
+    let need = (w * h * 2) as usize;
+    (w % 2 == 0 && need > 0 && (need..=need + need / 8).contains(&data.len())).then(|| crate::capture::yuy2_to_rgba(data, w, h, color))
 }
 
 pub struct DeviceCapture {
@@ -269,6 +288,23 @@ mod tests {
         assert!(t.elapsed() < Duration::from_secs(2), "the stop wasn't noticed");
         stopper.join().unwrap();
         drop(tx);
+    }
+
+    #[test]
+    fn an_hd_card_s_colours_are_bt709() {
+        // the pause menu's purple as a 720p card sends it (Y, U, Y, V)
+        let px = [107u8, 142, 107, 152];
+        let frame: Vec<u8> = px.iter().copied().cycle().take(1280 * 720 * 2).collect();
+        assert_eq!(yuyv_rgba(&frame, 1280, 720).unwrap()[..4], [149, 90, 136, 255], "read as BT.601 its green is 81");
+        // a picture smaller than HD is BT.601
+        assert_eq!(yuyv_rgba(&px, 2, 1).unwrap()[..4], [144, 81, 134, 255]);
+        // as macOS hands the frame over: a row's worth more after it (seen with a USB card: 1 845 760 bytes)
+        let padded: Vec<u8> = px.iter().copied().cycle().take(1_845_760).collect();
+        let rgba = yuyv_rgba(&padded, 1280, 720).expect("the padded frame is still a YUYV frame");
+        assert_eq!((rgba.len(), &rgba[rgba.len() - 4..]), (1280 * 720 * 4, &[149, 90, 136, 255][..]));
+        // not a YUYV frame's size (4:2:0 under the name, 8 or 10 bits): nokhwa's to decode
+        assert!(yuyv_rgba(&frame[..1280 * 720 * 3 / 2], 1280, 720).is_none());
+        assert!(yuyv_rgba(&[frame.as_slice(), &frame[..1280 * 720]].concat(), 1280, 720).is_none());
     }
 
     #[test]

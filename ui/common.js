@@ -454,9 +454,130 @@ window.AS = (() => {
   // the chat list's rows last drawn, by contact (or header), and when: held a moment when missed (renderPhone)
   const PHONE_ROWS = {};
 
+  // the buttons at the bottom right ("SELECT", "BACK"): each one's word beside the game's, in its style
+  function phoneButtons(root, P, W, H) {
+    for (const b of P.buttons || []) {
+      // (the game's buttons stay put: the place a button was first seen at is kept while it's read within a
+      // few pixels of it, the reading's box shifting a pixel or two from frame to frame)
+      const key = b.en || b.ar;
+      const was = PHONE_BUTTON_AT[key];
+      const near = was && Math.abs(was[0] - b.rect[0]) < 0.006 && Math.abs(was[1] - b.rect[1]) < 0.01 && Math.abs(was[3] - b.rect[3]) < 0.006;
+      const r = near ? was : (PHONE_BUTTON_AT[key] = b.rect);
+      const capH = r[3] * H;
+      const d = document.createElement("div");
+      Object.assign(d.style, {
+        position: "absolute",
+        right: `${W - r[0] * W + capH * 1.2}px`,
+        top: `${(r[1] + r[3] / 2) * H}px`,
+        transform: "translateY(-50%)",
+        display: "flex",
+        alignItems: "center",
+        gap: `${capH * 0.45}px`,
+        whiteSpace: "nowrap",
+        direction: dir(),
+        fontFamily: `"Noto Sans Arabic", ${fonts()}`,
+        fontWeight: "700",
+        fontSize: `${capH * 1.3}px`,
+        lineHeight: "1",
+        color: "#ffffff",
+        textShadow: "0 1px 3px rgba(0,0,0,0.85)",
+      });
+      // (its icon first: on the right in a right-to-left row, as the game's after its word)
+      if (b.icon) {
+        const img = document.createElement("img");
+        img.src = b.icon;
+        const ih = b.icon_rect ? b.icon_rect[3] * H : capH * 1.3;
+        Object.assign(img.style, { height: `${ih}px`, width: `${ih}px`, objectFit: "contain", flex: "none", display: "block" });
+        d.appendChild(img);
+      }
+      const label = document.createElement("span");
+      label.textContent = b.ar;
+      d.appendChild(label);
+      root.appendChild(d);
+    }
+  }
+
+  // GTA VI's phone read whole (the core's phone_read.rs: `P.read`, its title and its pieces top
+  // to bottom): a second phone beside the game's, upright, where the core put it once — the hand sways the
+  // phone, this one stays still. Its pieces one under the other as a chat's (others' on the left, the
+  // player's own on the right, as the game's), their text as big as fits the screen.
+  function renderPhoneRead(root, P) {
+    const W = root.clientWidth, H = root.clientHeight;
+    if (!W || !H) return;
+    const R = P.read;
+    // (read, and nothing on it to translate: no second phone)
+    if (R && !R.title && !(R.items || []).length) return;
+    const [sx, sy, sw, sh] = [P.screen[0] * W, P.screen[1] * H, P.screen[2] * W, P.screen[3] * H];
+    const side = 0.045 * sw, topB = 0.09 * sw, botB = 0.1 * sw, gap = 0.012 * W;
+    // (on the side with more room)
+    const x = sx > W - sx - sw ? sx - gap - side - sw : sx + sw + gap + side;
+    const el = (parent, css, text) => {
+      const d = document.createElement("div");
+      Object.assign(d.style, css);
+      if (text != null) d.textContent = text;
+      parent.appendChild(d);
+      return d;
+    };
+    const body = el(root, {
+      position: "absolute",
+      left: `${x - side}px`,
+      top: `${sy - topB}px`,
+      width: `${sw + 2 * side}px`,
+      height: `${sh + topB + botB}px`,
+      borderRadius: `${Math.max(6, 0.12 * sw)}px`,
+      background: "linear-gradient(135deg, #3a3b3f 0%, #1d1e21 45%, #0e0f11 100%)",
+      boxShadow: `0 ${0.04 * sw}px ${0.12 * sw}px rgba(0,0,0,0.55), inset 0 0 0 ${Math.max(1, 0.008 * sw)}px rgba(255,255,255,0.10)`,
+    });
+    let fs = 0.058 * sw;
+    const panel = el(body, {
+      position: "absolute",
+      left: `${side}px`,
+      top: `${topB}px`,
+      width: `${sw}px`,
+      height: `${sh}px`,
+      boxSizing: "border-box",
+      overflow: "hidden",
+      display: "flex",
+      flexDirection: "column",
+      background: P.screen_bg || "#f2f3f6",
+      borderRadius: `${Math.max(2, 0.025 * sw)}px`,
+      fontFamily: `"Noto Sans Arabic", ${fonts()}`,
+      fontSize: `${fs}px`,
+      lineHeight: "1.45",
+      color: "#1b1c20",
+    });
+    if (!R) {
+      // (its first reading on its way)
+      el(panel, { margin: "auto", fontSize: "2em", opacity: "0.45" }, "…");
+      return;
+    }
+    if (R.title) el(panel, { flex: "none", padding: "0.45em 0.6em", textAlign: "center", fontWeight: "700", direction: dir(), background: "rgba(255,255,255,0.55)", borderBottom: "1px solid rgba(0,0,0,0.12)" }, R.title);
+    // (what was read last stays, as it is, until a reading differs)
+    const list = el(panel, { flex: "1 1 auto", minHeight: "0", display: "flex", flexDirection: "column", gap: "0.4em", padding: "0.5em", overflow: "hidden" });
+    const LOOK = {
+      msg: { alignSelf: "flex-start", background: "rgba(255,255,255,0.9)", border: "1px solid rgba(70,90,200,0.35)" },
+      me: { alignSelf: "flex-end", background: "#cfe1f7" },
+      card: { alignSelf: "flex-start", background: "rgba(0,0,0,0.07)", border: "1px solid rgba(0,0,0,0.12)", fontWeight: "700", fontSize: "0.9em" },
+      label: { alignSelf: "center", fontSize: "0.82em", opacity: "0.7", padding: "0 0.4em" },
+    };
+    for (const it of R.items || []) {
+      if (!it.text) continue;
+      const d = el(list, Object.assign({ flex: "none", maxWidth: "92%", padding: "0.3em 0.6em", borderRadius: "0.6em", direction: dir(), textAlign: "start", overflowWrap: "anywhere" }, LOOK[it.k] || LOOK.msg));
+      // (the sender's name in the colour the game writes it in — each sender's own, as read off the phone — else purple)
+      if (it.from) el(d, { fontWeight: "700", fontSize: "0.9em", color: /^#[0-9a-f]{6}$/i.test(it.color || "") ? it.color : "#5b46b0" }, it.from);
+      el(d, {}, it.text);
+    }
+    // (as big as fits: smaller until its last piece is on the screen, no smaller than half the size)
+    for (let i = 0; i < 12 && list.scrollHeight > list.clientHeight + 1; i++) {
+      fs *= 0.94;
+      panel.style.fontSize = `${fs}px`;
+    }
+  }
+
   function renderPhone(root, P, fit, again) {
     root.innerHTML = "";
     if (P && P.chat) renderChat(root, P.chat);
+    if (P && "read" in P) return renderPhoneRead(root, P);
     // (the phone not read for a moment — a frame it wasn't found in: the last one drawn stays up a little)
     // (`replay`: the last phone drawn again — its text's size and everything as a reading's, only nothing measured
     // anew: no easing, no scroll told)
@@ -645,46 +766,7 @@ window.AS = (() => {
     }
     // (in the panel: places relative to its top left)
     const put = (d, left, top) => Object.assign(d.style, { left: `${left - x}px`, top: `${top - panelTop}px` });
-    // the buttons at the bottom right ("SELECT", "BACK"): each one's word beside the game's, in its style
-    for (const b of P.buttons || []) {
-      // (the game's buttons stay put: the place a button was first seen at is kept while it's read within a
-      // few pixels of it, the reading's box shifting a pixel or two from frame to frame)
-      const key = b.en || b.ar;
-      const was = PHONE_BUTTON_AT[key];
-      const near = was && Math.abs(was[0] - b.rect[0]) < 0.006 && Math.abs(was[1] - b.rect[1]) < 0.01 && Math.abs(was[3] - b.rect[3]) < 0.006;
-      const r = near ? was : (PHONE_BUTTON_AT[key] = b.rect);
-      const capH = r[3] * H;
-      const d = document.createElement("div");
-      Object.assign(d.style, {
-        position: "absolute",
-        right: `${W - r[0] * W + capH * 1.2}px`,
-        top: `${(r[1] + r[3] / 2) * H}px`,
-        transform: "translateY(-50%)",
-        display: "flex",
-        alignItems: "center",
-        gap: `${capH * 0.45}px`,
-        whiteSpace: "nowrap",
-        direction: dir(),
-        fontFamily: `"Noto Sans Arabic", ${fonts()}`,
-        fontWeight: "700",
-        fontSize: `${capH * 1.3}px`,
-        lineHeight: "1",
-        color: "#ffffff",
-        textShadow: "0 1px 3px rgba(0,0,0,0.85)",
-      });
-      // (its icon first: on the right in a right-to-left row, as the game's after its word)
-      if (b.icon) {
-        const img = document.createElement("img");
-        img.src = b.icon;
-        const ih = b.icon_rect ? b.icon_rect[3] * H : capH * 1.3;
-        Object.assign(img.style, { height: `${ih}px`, width: `${ih}px`, objectFit: "contain", flex: "none", display: "block" });
-        d.appendChild(img);
-      }
-      const label = document.createElement("span");
-      label.textContent = b.ar;
-      d.appendChild(label);
-      root.appendChild(d);
-    }
+    phoneButtons(root, P, W, H);
     let below = -1e9;
     const fitList = [];
     // (the other person's bubbles' left margin, the smallest: the character's own keep the same on the right)
@@ -1305,7 +1387,8 @@ window.AS = (() => {
             WebkitTextStroke: m.outline ? `${(fs * 0.06).toFixed(1)}px ${m.outline}` : "",
             paintOrder: m.outline ? "stroke fill" : "",
           },
-          `<span>${withIcons(m.ar, m.icons)}</span>`,
+          // (a line of dialogue: who says it first, in the game's colour for the name, as a subtitle's is)
+          `<span>${m.name ? `<span style="color:${esc(m.name_fg || "inherit")}">${esc(m.name)}:</span> ` : ""}${withIcons(m.ar, m.icons)}</span>`,
         );
         continue;
       }
@@ -1570,10 +1653,14 @@ window.AS = (() => {
 
   // Font size (CSS px) that matches the game's English text: lineH is a fraction of the frame
   // height, frameH the frame's height in CSS px. Returns 0 when not matching (use the style size).
-  function matchedPx(area, lineH, frameH) {
+  function matchedPx(area, lineH, frameH, factor) {
     if (!area || area.match_size === false || !lineH) return 0;
-    return lineH * frameH * MATCH_FACTOR * (area.font_scale || 1);
+    return lineH * frameH * (factor || MATCH_FACTOR) * (area.font_scale || 1);
   }
+  // Over the game's text (the cover look): the Arabic as big as the English it hides, line for line. GTA VI's
+  // subtitles at 720p: a line read 25 px tall, 27 px from one line to the next; 0.92 × 1.18 ≈ 1.09 of the read
+  // height. (Matched as elsewhere, 1.2 and the style's 1.5 spacing, a line took 47 px: the box twice the English.)
+  const COVER_MATCH = 0.92, COVER_LINE = 1.18;
 
   // GTA's instructions box hugs its text with these margins (in English line heights, measured on
   // captured frames): ~0.65 left/top/bottom, ~1.2 right.
@@ -1596,7 +1683,7 @@ window.AS = (() => {
     if (!(opts && opts.more && opts.more[COVER] === true) || !tb || area.placement === "under_text") return { placement: area.placement, style, area };
     return {
       placement: "on_text",
-      style: Object.assign({}, style, { bg_color: "#000000", bg_opacity: 1 }),
+      style: Object.assign({}, style, { bg_color: "#000000", bg_opacity: 1, line_height: COVER_LINE }),
       area: Object.assign({}, area, { background: "" }),
     };
   }
@@ -1671,9 +1758,28 @@ window.AS = (() => {
       width: "max-content",
       minWidth: `${r[2]}px`,
       minHeight: minH ? `${minH}px` : "",
-      maxWidth: `${Math.max(W * 0.92, r[2])}px`,
+      // (up to 60 % of the picture before it wraps, centred: the middle, where the game keeps its own
+      // subtitles. At 92 % a long one reached over GTA VI's map, bottom left)
+      maxWidth: `${Math.max(W * 0.6, r[2])}px`,
       boxSizing: "border-box",
     });
+    // (the English in two lines or more, the Arabic shorter: as many lines as it, filling the box that hides
+    // it — one line over two English ones was a tall black box with a line in its middle. Never more lines
+    // than the English: half as wide each left a word on a third)
+    const rows = Math.round(tb[3] / (lineH || tb[3]));
+    const t = box.firstElementChild;
+    // (not when it has lines of its own: two speakers' lines, one under the other)
+    if (rows >= 2 && t && !t.querySelector("br")) {
+      Object.assign(t.style, { width: "max-content", maxWidth: "none" });
+      const one = t.getBoundingClientRect().width;
+      const line = parseFloat(getComputedStyle(t).lineHeight) || lh;
+      const limit = Math.max(W * 0.6, r[2]);
+      Object.assign(t.style, { width: "", textWrap: "balance" });
+      for (let w = Math.ceil(one / rows); ; w += lh / 2) {
+        t.style.maxWidth = `${w}px`;
+        if (t.getBoundingClientRect().height <= rows * line + 1 || w >= limit) break;
+      }
+    }
   }
 
   // A read area's effects (Read Areas; the defaults when it has none of its own: config.rs AreaFx). `all`: the
@@ -1768,7 +1874,7 @@ window.AS = (() => {
     const tb = P.noBoxes ? null : steady(a.id + "|text", src.text_box);
     const gbox = P.noBoxes ? null : steady(a.id + "|game", src.game_box);
     const L = look(a, styleOf(a, baseStyle), opts, tb);
-    renderBox(box, has ? ev.segments : [], L.style, k, a.font_scale, L.placement, L.area, matchedPx(a, src.line_h, sizeH),
+    renderBox(box, has ? ev.segments : [], L.style, k, a.font_scale, L.placement, L.area, matchedPx(a, src.line_h, sizeH, L.placement === "on_text" ? COVER_MATCH : 0),
       { fadeMs: fx.fade_ms, empty: early, accent: fx.accent });
     if (atText(L.placement)) {
       placeAtText(box, L.placement, tb, src.line_h, P.W, P.H, P.ox, P.oy, P.areaW, P.areaH, gbox,
@@ -1783,7 +1889,9 @@ window.AS = (() => {
     }
     // (the same translation, drawn again: where it was; riding above stacked lines it moves with them)
     if (has && !P.ride) {
-      const key = ev.segments.map((s) => s[0]).join("") + "|" + P.W + "x" + P.H;
+      // (and at the same size: the game's settings show the same line at each subtitle size picked — its black
+      // box stayed as big as the first)
+      const key = ev.segments.map((s) => s[0]).join("") + "|" + P.W + "x" + P.H + "|" + ev.line_h;
       const was = placed[a.id];
       if (was && was.key === key) {
         for (const p of PLACE_KEYS) box.style[p] = was.style[p];
@@ -1833,5 +1941,5 @@ window.AS = (() => {
   // An area's text style: its own, else the profile's (areas from before had none of their own).
   const styleOf = (area, base) => (area && area.style) || base;
 
-  return { _phone: { PHONE_BOX: PHONE_BOX, PHONE_FIT: PHONE_FIT, PHONE_QUAD: PHONE_QUAD }, STEADY, steady, setLang, styleOf, esc, segHtml, rectFor, alignOf, anchor, renderBox, renderScreen, matchedPx, placeUnderText, atText, placeAtText, look, COVER, fxOf, coverLook, drawLine, ridePlace, measureBox, renderPhone };
+  return { _phone: { PHONE_BOX: PHONE_BOX, PHONE_FIT: PHONE_FIT, PHONE_QUAD: PHONE_QUAD }, STEADY, steady, setLang, styleOf, esc, segHtml, rectFor, alignOf, anchor, renderBox, renderScreen, matchedPx, COVER_MATCH, placeUnderText, atText, placeAtText, look, COVER, fxOf, coverLook, drawLine, ridePlace, measureBox, renderPhone };
 })();

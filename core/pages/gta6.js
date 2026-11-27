@@ -1,4 +1,4 @@
-// pages-version: 11
+// pages-version: 12
 // requires-app: 1.0.0
 // Grand Theft Auto VI: the game's own pages the app translates (see src/pagescript.rs for the API).
 // The pages' switch names and descriptions in the app's other interface languages (English and Arabic are with each).
@@ -6516,6 +6516,134 @@ pages.add({
   same(f) {
     const k = pauseKind(f);
     return !!k && k.kind === this.kind;
+  },
+});
+
+// ------------------------------------------------------------------ the Brief's text alone
+// The pause menu's Brief tab: what was said, the help texts and the objectives so far, in a column on the right.
+// Only that column is translated, each line in its place; the tabs, the list on the left and the buttons stay as
+// the game shows them — for a player who reads the menu in English, and wants what was said in their language.
+// Its switch takes the pause menu's place (`replaces`): the whole menu isn't translated while it's on.
+
+pages.option({
+  id: "brief_text",
+  name: { en: "Brief text only", ar: "نص الموجز (Brief) فقط" },
+  about: {
+    en: "In the pause menu's Brief tab, translate only the text on the right: the dialogue, help texts and objectives. Tabs, lists and buttons stay in English. Turns “Pause menu” off while it's on.",
+    ar: "في تبويب الموجز (Brief) من قائمة الإيقاف، ترجمة النص في الجهة اليمنى فقط: الحوارات ونصوص المساعدة والأهداف. التبويبات والقوائم والأزرار تبقى بالإنجليزية. يعطّل «قائمة الإيقاف المؤقت» ما دام مفعّلاً.",
+  },
+  on: false,
+  replaces: "pause_menu",
+});
+
+// the column of the Brief's text (frame fractions): from under the thin line at its top to over the buttons,
+// short of its scroll bar on the right
+// (a full row's last letters reach 0.974 of the picture, the bar starts at 0.979: a box 0.972 wide left "You"'s
+// end showing beside it)
+const BRIEF_COLUMN = { x: 0.455, y: 0.165, w: 0.521, h: 0.76 };
+// a line of dialogue: its speaker's name (one to three words, each with a capital first), a colon, what's said
+const BRIEF_NAME = /^(\p{Lu}[\p{L}\d.'’-]*(?: [\p{Lu}\d][\p{L}\d.'’-]*){0,2})\s?[:;]\s+(\S.*)$/u;
+
+/** The Brief's lines: each one whole (a sentence wrapped onto a second row with its first), as a text box as wide
+ *  as the column, its speaker's name and colour apart from what's said. */
+function briefLines(f) {
+  const col = pxRect(f, BRIEF_COLUMN);
+  // (a row whole, however far apart two of its words: nothing else is on its line. A small picture, 720p: read
+  // twice as big)
+  // (two letters or digits make a row, together or not: a sentence's second row can be "A&R…", and left out it
+  // stayed in English under its translated first row)
+  const read = segments(f, col, { scale: f.h < 900 ? 2 : 1 }, 60).filter((s) => (s.words.map((w) => w.text).join("").match(/[\p{L}\d]/gu) || []).length >= 2);
+  // (a row the scroll cuts at the column's top or bottom: half its letters' height, read as other words each
+  // time — "ana DE кеер SUIOTL". Not read: its whole line comes with the next scroll)
+  const hs = read.map((s) => s.h).sort((a, b) => a - b), tall = hs[Math.floor(hs.length / 2)] || 0;
+  const rows = read.filter((s) => s.h >= tall * 0.7);
+  if (!rows.length) return [];
+  const L = FONT.text * f.h;
+  const x0 = Math.max(Math.min(...rows.map((s) => s.x0)) - Math.round(L * 0.4), col.x), x1 = col.x + col.w;
+  // (a sentence's second row is a row's step under its first, 1.4 letters; the next line starts 2.3 or more
+  // under: a row in between the two is a second row, unless it starts with a name)
+  const lines = [];
+  for (const s of rows) {
+    const text = s.words.map((w) => w.text).join(" ");
+    const last = lines[lines.length - 1];
+    if (last && !BRIEF_NAME.test(text) && s.y0 - last.rowY < L * 1.85 && s.y0 > last.rowY) Object.assign(last, { y1: s.y1, rowY: s.y0, text: last.text + " " + text });
+    else lines.push({ y0: s.y0, y1: s.y1, rowY: s.y0, text, first: s });
+  }
+  const tops = lines.map((b) => [Math.max(b.y0 - Math.round(L * 0.42), 0), Math.min(b.y1 + Math.round(L * 0.25), f.h - 1)]);
+  // (the game sets a line right under a wrapped one, closer than the others: each box up to the middle of what's
+  // between the two, not over the other's text)
+  for (let i = 1; i < tops.length; i++) {
+    if (tops[i][0] > tops[i - 1][1]) continue;
+    const mid = Math.floor((lines[i - 1].y1 + lines[i].y0) / 2);
+    tops[i - 1][1] = mid;
+    tops[i][0] = mid + 1;
+  }
+  return lines.map((b, i) => {
+    const [ry0, ry1] = tops[i];
+    const bg = f.median({ x: x0, y: ry0, w: x1 - x0, h: ry1 - ry0 + 1 }, { step_x: 2, step_y: 1, exclude: [b.first.x0, b.y0, x1, b.y1] }) || { r: 0, g: 0, b: 0 };
+    let en = vi.fixContractions(b.text.replace(/\s+/g, " ").trim()), name = "", nameFg = "";
+    const m = BRIEF_NAME.exec(en);
+    // (the name's letters, by their share of the row; what's said after them, in its own colour: the line at the
+    // top fades out as it scrolls away)
+    const s = b.first, nw = m ? Math.round(((s.x1 - s.x0) * (m[1].length + 1)) / s.words.map((w) => w.text).join(" ").length) : 0;
+    const fg = f.contrast({ x: s.x0 + nw, y: s.y0, w: Math.max(s.x1 - s.x0 - nw, 4), h: s.y1 - s.y0 }, bg, 0.125) || { r: 255, g: 255, b: 255 };
+    if (m) {
+      // (a name is in another colour than what's said, however faded the line: a white "Note:" is part of its
+      // sentence)
+      const c = f.contrast({ x: s.x0, y: s.y0, w: Math.max(nw, 4), h: s.y1 - s.y0 }, bg, 0.125);
+      if (c && Math.abs(c.r - fg.r) + Math.abs(c.g - fg.g) + Math.abs(c.b - fg.b) >= 40) (name = m[1]), (nameFg = hex(c)), (en = m[2]);
+    }
+    // (a help text: written for the game, its buttons' pictures read as stray letters — "your loadout L to")
+    const help = name ? "" : helpText(en);
+    return {
+      en, ar: help, fixed: !!help, name, name_fg: nameFg, icons: [], lines: 2,
+      // (white, always: the game fades a line out at the column's top and bottom as it scrolls, and its
+      // translation came out grey. Only the speaker's name in its colour)
+      rect: f.box(x0, ry0, x1 - x0, ry1 - ry0),
+      bg: backdrop(f, x0, ry0, x1, ry1, b) || hex(bg), fg: "#ffffff",
+      line_h: FONT.text, size: 1, font: textFont(), weight: 500,
+      align: rtlLang() ? "right" : "left", wrap: "yes", item: false, right: false, missed: 0,
+    };
+  }).filter((m) => /\p{L}{2}/u.test(m.en));
+}
+
+pages.add({
+  id: "gta6_brief",
+  option: "brief_text",
+  hold: { follow: "menu", content: BRIEF_COLUMN, buttons: { x: 0.45, y: 0.935, w: 0.535, h: 0.05 } },
+
+  // The hub's dark bar with the Brief tab in pink. Which tab the pink is, read once for each place the pink is in
+  // (the tabs' places change with their names, "JASON & LUCIA" or "JASON DUVAL": told by its word, not its place).
+  present(f) {
+    const pink = hubBar(f);
+    if (!pink || !backIcon(f)) return null;
+    if (!this.tab || Math.abs(this.tab.x - pink.x) > 3 || Math.abs(this.tab.w - pink.w) > 3) {
+      const pad = Math.round(pink.h * 0.7);
+      const y = Math.max(pink.y - pad, 0);
+      const word = f.ocr({ x: Math.max(pink.x - pad, 0), y, w: pink.w + 2 * pad, h: pink.y + pink.h + pad - y }, { scale: 3 }).text;
+      this.tab = { x: pink.x, w: pink.w, brief: /BR[I1L|]EF/i.test(word.replace(/\s/g, "")) };
+    }
+    return this.tab.brief ? pink : null;
+  },
+
+  read(f, pink) {
+    if (!pink) return null;
+    const menu = briefLines(f);
+    if (!menu.length) return null;
+    return {
+      id: "gta6_brief",
+      title: { x: 0, y: 0, w: 0, h: 0 },
+      labels: [], menu, cards: [], buttons: [],
+      follow: "menu",
+      content_rect: BRIEF_COLUMN,
+      buttons_rect: { x: 0.45, y: 0.935, w: 0.535, h: 0.05 },
+    };
+  },
+
+  // still on the Brief: the pink where it was (pixels only: asked on every frame)
+  same(f) {
+    const pink = hubBar(f);
+    return !!pink && !!this.tab && this.tab.brief && Math.abs(this.tab.x - pink.x) <= 3 && Math.abs(this.tab.w - pink.w) <= 3;
   },
 });
 

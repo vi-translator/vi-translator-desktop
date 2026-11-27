@@ -1357,6 +1357,23 @@ fn read_phone(dir: &str) -> anyhow::Result<()> {
         let img = image::open(&path)?.to_rgba8();
         let (w, h) = img.dimensions();
         let t = Instant::now();
+        // (`--whole`: the phone read whole, as on a Mac — phone_read.rs: its title and its pieces)
+        if std::env::args().any(|a| a == "--whole") {
+            use vi_translator_core::phone_read as pr;
+            let frame = capture::FrameData { w, h, rgba: img.into_raw(), seq: 0 };
+            let Some(shot) = vi_translator_core::phone::find_phone(&frame.rgba, w, h).and_then(|scr| pr::shot(&frame, scr)) else {
+                println!("{name}: no phone ({} ms)", t.elapsed().as_millis());
+                continue;
+            };
+            let found = t.elapsed().as_millis();
+            let lines = ocr.lines_with(&shot.crop, vi_translator_core::ocr::Prep::Brightest)?;
+            let (title, items) = pr::page(lines, shot.col, shot.bottom, &|l| shot.tint(l), &|l| shot.ink(l));
+            println!("{name}: found in {found} ms, read in {} ms | title {title:?}", t.elapsed().as_millis() - found);
+            for it in items {
+                println!("   {:5} {:8} {:7} | {}", it.k, it.from, it.color, it.en);
+            }
+            continue;
+        }
         let screen = vi_translator_core::phone::find_screen(img.as_raw(), w, h)
             .or_else(|| vi_translator_core::phone::find_screen_unsure(img.as_raw(), w, h).filter(|_| vi_translator_core::phone::phone_buttons(&vi_translator_core::phone::read_buttons(&ocr, img.as_raw(), w, h))));
         let Some(screen) = screen else {

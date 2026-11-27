@@ -21,6 +21,7 @@ pub mod ocr;
 pub mod pagescript;
 pub mod perf;
 pub mod phone;
+pub mod phone_read;
 pub mod chat;
 pub mod phrasebook;
 pub mod screens;

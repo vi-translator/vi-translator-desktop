@@ -117,7 +117,6 @@ pub struct YuvFrame {
 }
 
 /// YUY2 → RGBA (for reading text; the preview does the same on the GPU).
-#[cfg_attr(not(windows), allow(dead_code))] // (the Windows capture card reader's)
 pub fn yuy2_to_rgba(src: &[u8], w: u32, h: u32, c: YuvColor) -> Vec<u8> {
     // R = Y + kr·V, G = Y − kgu·U − kgv·V, B = Y + kb·U, in fixed point (×1024)
     let (kr, kgu, kgv, kb) = if c.bt709 { (1.5748, 0.1873, 0.4681, 1.8556) } else { (1.402, 0.3441, 0.7141, 1.772) };

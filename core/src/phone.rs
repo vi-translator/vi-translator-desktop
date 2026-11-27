@@ -256,6 +256,28 @@ pub fn phone_buttons(buttons: &[((u32, u32, u32, u32), String)]) -> bool {
 }
 
 fn find_screen_at(rgba: &[u8], fw: u32, fh: u32, light_from: i32, sure: bool) -> Option<(u32, u32, u32, u32)> {
+    find_screen_as(rgba, fw, fh, light_from, sure, false, 30)
+}
+
+/// The phone for a reader that needs no exact screen (phone_read.rs sends its picture to a model): the screen
+/// as `find_screen` finds it, or else
+/// - the white phone whole — by day its body is as light as its screen, the two are one light region, wider
+///   than a screen may be and less tall for its width, and no screen was found (`body`: to 55 % of the
+///   picture's height wide, 1.1 times as tall as wide at the least);
+/// - a screen coloured by the light it's in — under a street lamp, at sunset, its white is (185, 162, 128),
+///   55 between its most and least colour: no "colourless" light, and no screen was found (`tint`: 75 apart
+///   at the most).
+/// - a screen dimmer still — in a dark room, a night club's light, its least colour 67 (half the picture's
+///   light, 55 %), 54 at 45 %: none of the above finds it. Last, when nothing else is a phone: the reader also
+///   wants the phone's buttons on the picture (engine.rs, `phone_whole`), a dim wall alone shows nothing.
+pub fn find_phone(rgba: &[u8], fw: u32, fh: u32) -> Option<(u32, u32, u32, u32)> {
+    find_screen(rgba, fw, fh)
+        .or_else(|| [175, 150, 130].iter().find_map(|&t| find_screen_as(rgba, fw, fh, t, true, true, 30)))
+        .or_else(|| [140, 105, 80].iter().find_map(|&t| find_screen_as(rgba, fw, fh, t, true, true, 75)))
+        .or_else(|| [65, 52].iter().find_map(|&t| find_screen_as(rgba, fw, fh, t, true, false, 75)))
+}
+
+fn find_screen_as(rgba: &[u8], fw: u32, fh: u32, light_from: i32, sure: bool, body: bool, tint: i32) -> Option<(u32, u32, u32, u32)> {
     let (cw, ch) = (fw / SCALE, fh / SCALE);
     if cw < 16 || ch < 16 {
         return None;
@@ -271,7 +293,7 @@ fn find_screen_at(rgba: &[u8], fw: u32, fh: u32, light_from: i32, sure: bool) ->
                 let (r, g, b) = (rgba[i] as i32, rgba[i + 1] as i32, rgba[i + 2] as i32);
                 let (lo, hi) = (r.min(g).min(b), r.max(g).max(b));
                 // (lit enough, with little colour: see find_screen)
-                if lo >= light_from && hi - lo <= 30 {
+                if lo >= light_from && hi - lo <= tint {
                     n += 1;
                 }
             }
@@ -319,7 +341,7 @@ fn find_screen_at(rgba: &[u8], fw: u32, fh: u32, light_from: i32, sure: bool) ->
         regions.push((x0, y0, x1, y1, cells));
     }
     // the phone screen's width, in cells: an eighth to 45 % of the picture's height (1080p: 135-486 px)
-    let (min_w, max_w) = (ch / 8, ch * 9 / 20);
+    let (min_w, max_w) = (ch / 8, if body { ch * 11 / 20 } else { ch * 9 / 20 });
     // (the parts of its box the region holds inside it: a chat's photo is a dark hole in the screen's light, its
     // bubble's light all round it — the screen with photos filled less than half its box, and wasn't found)
     let holes = |idx: usize, r: &(u32, u32, u32, u32, u32)| -> u32 {
@@ -389,7 +411,7 @@ fn find_screen_at(rgba: &[u8], fw: u32, fh: u32, light_from: i32, sure: bool) ->
     // the picture's height in GTA VI's hand; 1.25 and 45 % at the least, for a tilt or a scroll) — a
     // light wall, a shirt, the message bubble, a lit window are wider or shorter
     // (`sure` false: at least 0.6 as tall as wide and a fifth of the picture, for a post's caption)
-    if (sure && (bh * 4 < bw * 5 || bh * 100 < ch * 45)) || (!sure && (bh * 10 < bw * 6 || bh * 5 < ch)) {
+    if (sure && (bh * 20 < bw * if body { 22 } else { 25 } || bh * 100 < ch * 45)) || (!sure && (bh * 10 < bw * 6 || bh * 5 < ch)) {
         return None;
     }
     // (below the picture's top, clear of its sides: a phone in the hand never reaches them; a bright sky
@@ -1741,6 +1763,31 @@ pub fn steady(seen: &mut Vec<Seen>, read: Vec<Piece>, screen: (u32, u32, u32, u3
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_dim_screen_in_the_dark_is_a_phone() {
+        // a screen held up in a dark room, its least colour 74 (under every light find_screen tries), round it 20
+        let (w, h) = (1280u32, 720u32);
+        let mut f = vec![20u8; (w * h * 4) as usize];
+        for y in 110..610 {
+            for x in 500..800 {
+                let i = ((y * w + x) * 4) as usize;
+                f[i..i + 3].copy_from_slice(&[80, 78, 74]);
+            }
+        }
+        assert!(find_screen(&f, w, h).is_none(), "a screen this dim was found already");
+        let r = find_phone(&f, w, h).expect("the dim screen is a phone");
+        assert!(r.0.abs_diff(500) <= 6 && r.1.abs_diff(110) <= 6 && r.2.abs_diff(300) <= 12 && r.3.abs_diff(500) <= 12, "{r:?}");
+        // a dim light region as wide as it is tall is none
+        let mut wall = vec![20u8; (w * h * 4) as usize];
+        for y in 110..610 {
+            for x in 300..800 {
+                let i = ((y * w + x) * 4) as usize;
+                wall[i..i + 3].copy_from_slice(&[80, 78, 74]);
+            }
+        }
+        assert!(find_phone(&wall, w, h).is_none());
+    }
 
     #[test]
     fn ok_read_with_a_zero_is_ok() {

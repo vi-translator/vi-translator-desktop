@@ -163,6 +163,11 @@ pub struct MenuText {
     pub private: bool,
     /// the game's button icons for this text (PNG data URLs), drawn where the translation says ⟦1⟧, ⟦2⟧ …
     pub icons: Vec<String>,
+    /// who says it (a line of dialogue: "Jason" of "Jason: Thanks."), and the game's colour for the name: only
+    /// the sentence, `en`, is translated — the same line a subtitle is, and found in the memory as one; the
+    /// name is written as the language writes it (the app's) and drawn before the sentence, in its colour
+    pub name: String,
+    pub name_fg: String,
     /// what the game showed under it when read (see `region_sig`)
     #[serde(skip)]
     pub sig: Vec<u8>,
@@ -177,6 +182,13 @@ pub fn limit(l: &mut ScreenLayout) {
     for m in l.menu.iter_mut() {
         m.icons.retain(|i| i.len() <= ICON && i.starts_with("data:image/png;base64,"));
         m.icons.truncate(8);
+        // (a name and a colour: nothing longer, no colour that isn't one)
+        if m.name.chars().count() > 40 {
+            m.name.clear();
+        }
+        if !(m.name_fg.len() == 7 && m.name_fg.starts_with('#') && m.name_fg[1..].bytes().all(|b| b.is_ascii_hexdigit())) {
+            m.name_fg.clear();
+        }
     }
     l.labels.truncate(48);
     l.cards.truncate(8);

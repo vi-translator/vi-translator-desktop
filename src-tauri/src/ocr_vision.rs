@@ -13,10 +13,10 @@ use objc2_core_foundation::CFData;
 use objc2_core_graphics::{CGBitmapInfo, CGColorRenderingIntent, CGColorSpace, CGDataProvider, CGImage, CGImageAlphaInfo};
 use objc2_foundation::{NSArray, NSDictionary, NSString};
 use objc2_vision::{
-    VNImageOption, VNImageRequestHandler, VNRecognizeTextRequest, VNRequest, VNRequestTextRecognitionLevel,
+    VNImageOption, VNImageRequestHandler, VNRecognizeTextRequest, VNRecognizedTextObservation, VNRequest, VNRequestTextRecognitionLevel,
 };
 
-use vi_translator_core::ocr::RawWord;
+use vi_translator_core::ocr::{RawWord, TextLine};
 
 pub struct Engine;
 
@@ -37,6 +37,26 @@ impl Engine {
         // the prepared image is grey: one channel is enough
         let grey: Vec<u8> = bgra.chunks_exact(4).map(|p| p[0]).collect();
         autoreleasepool(|_| unsafe { recognize(&grey, w, h) })
+    }
+
+    /// The image's lines of text, each as it lies: Vision gives a line's four corners (text on a phone held
+    /// tilted; the box round such a line is twice as tall as its letters).
+    pub fn read_lines(&self, bgra: &[u8], w: u32, h: u32) -> Result<Vec<TextLine>> {
+        let grey: Vec<u8> = bgra.chunks_exact(4).map(|p| p[0]).collect();
+        autoreleasepool(|_| unsafe {
+            let Some(results) = observe(&grey, w, h)? else { return Ok(Vec::new()) };
+            // (normalised points, origin at the bottom left)
+            let px = |p: objc2_core_foundation::CGPoint| [p.x * w as f64, (1.0 - p.y) * h as f64];
+            let mid = |a: [f64; 2], b: [f64; 2]| [(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0];
+            Ok(results
+                .iter()
+                .filter_map(|obs| {
+                    let t = obs.topCandidates(1).firstObject()?.string().to_string();
+                    let (tl, tr, bl, br) = (px(obs.topLeft()), px(obs.topRight()), px(obs.bottomLeft()), px(obs.bottomRight()));
+                    Some(TextLine { t, l: mid(tl, bl), r: mid(tr, br), h: (tl[0] - bl[0]).hypot(tl[1] - bl[1]) })
+                })
+                .collect())
+        })
     }
 }
 
@@ -62,7 +82,8 @@ unsafe fn grey_image(grey: &[u8], w: u32, h: u32) -> Result<objc2_core_foundatio
     .ok_or_else(|| anyhow!("OCR: could not make an image"))
 }
 
-unsafe fn recognize(grey: &[u8], w: u32, h: u32) -> Result<Vec<RawWord>> {
+/// The image's lines of text, as Vision found them.
+unsafe fn observe(grey: &[u8], w: u32, h: u32) -> Result<Option<Retained<NSArray<VNRecognizedTextObservation>>>> {
     let image = unsafe { grey_image(grey, w, h)? };
     let request = VNRecognizeTextRequest::new();
     request.setRecognitionLevel(VNRequestTextRecognitionLevel::Accurate);
@@ -72,9 +93,12 @@ unsafe fn recognize(grey: &[u8], w: u32, h: u32) -> Result<Vec<RawWord>> {
     let handler = unsafe { VNImageRequestHandler::initWithCGImage_options(VNImageRequestHandler::alloc(), &image, &options) };
     let as_request: &VNRequest = request.as_ref();
     handler.performRequests_error(&NSArray::from_slice(&[as_request])).map_err(|e| anyhow!("OCR failed: {e}"))?;
+    Ok(request.results())
+}
 
+unsafe fn recognize(grey: &[u8], w: u32, h: u32) -> Result<Vec<RawWord>> {
     let mut words = Vec::new();
-    let Some(results) = request.results() else { return Ok(words) };
+    let Some(results) = (unsafe { observe(grey, w, h)? }) else { return Ok(words) };
     for (line_no, obs) in results.iter().enumerate() {
         let Some(best) = obs.topCandidates(1).firstObject() else { continue };
         let text = best.string().to_string();

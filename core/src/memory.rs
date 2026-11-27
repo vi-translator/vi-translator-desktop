@@ -425,6 +425,67 @@ impl Memory {
         best.map(|e| (e.en.clone(), slot_text(&fill(&e.ar, &slots(9), &[])), e.source.clone()))
     }
 
+    /// A remembered line that `part` is a piece of: GTA VI's phone after a scroll shows a message cut off at the
+    /// screen's top or bottom — its end, its start, or its middle — and the memory has the whole message. Its
+    /// whole English key, its Arabic (filled with no icons) and its source: the closest (its words alike, a
+    /// misread letter or two allowed, as `near`), then the most trusted, then the shortest. Pieces of four
+    /// words and 16 letters at the least: a shorter one is in too many lines.
+    pub fn containing(&self, part: &str) -> Option<(String, String, String)> {
+        let key = key_of(part);
+        let words: Vec<&str> = key.split(' ').filter(|w| !w.is_empty() && !(w.starts_with('{') && w.ends_with('}'))).collect();
+        let bare = |ws: &[&str]| ws.concat();
+        let want = bare(&words);
+        if words.len() < 4 || want.chars().count() < 16 {
+            return None;
+        }
+        // (the lines with the piece's rarest words, most of them in common first: as `near`)
+        let mut known: Vec<&Vec<String>> = {
+            let mut ws = words.clone();
+            ws.sort_unstable();
+            ws.dedup();
+            ws.iter().filter_map(|w| self.index.get(*w)).collect()
+        };
+        known.sort_unstable_by_key(|keys| keys.len());
+        let mut shared: HashMap<&str, usize> = HashMap::new();
+        for keys in known.iter().take(RARE_WORDS) {
+            for k in keys.iter() {
+                *shared.entry(k.as_str()).or_default() += 1;
+            }
+        }
+        let mut cands: Vec<(&str, usize)> = shared.into_iter().filter(|(k, _)| k.len() > key.len()).collect();
+        cands.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+        let need = if want.chars().count() >= 30 { 0.86 } else { 0.9 };
+        let mut best: Option<(f64, &Entry)> = None;
+        // (every line the piece fits about as well as the best: when they're different messages the piece is in
+        // more than one — "Visit the app for additional perks with our business partners." ends several of an
+        // app's — and which one it's a piece of can't be told: none. Taken one reading and another the next,
+        // the second phone went from one message to the other)
+        let mut fits: Vec<(f64, &Entry)> = Vec::new();
+        for (k, _) in cands.into_iter().take(NEAR_TRIES) {
+            let kw: Vec<&str> = k.split(' ').filter(|w| !(w.starts_with('{') && w.ends_with('}'))).collect();
+            if kw.len() <= words.len() {
+                continue;
+            }
+            // (the piece against each run of as many of the line's words: a word misread or split stays in place)
+            let s = (0..=kw.len() - words.len()).map(|i| similarity(&bare(&kw[i..i + words.len()]), &want)).fold(0.0, f64::max);
+            if s < need {
+                continue;
+            }
+            let Some(e) = self.map.get(k) else { continue };
+            fits.push((s, e));
+            let better = |b: &(f64, &Entry)| (s, rank(&e.source), std::cmp::Reverse(e.en.len())) > (b.0, rank(&b.1.source), std::cmp::Reverse(b.1.en.len()));
+            if best.as_ref().is_none_or(better) {
+                best = Some((s, e));
+            }
+        }
+        let (top, e) = best?;
+        // (as well: a letter's difference tells them apart — "$100,000" against "$500,000")
+        if fits.iter().any(|(s, o)| *s >= top - 0.005 && o.en != e.en) {
+            return None;
+        }
+        Some((e.en.clone(), slot_text(&fill(&e.ar, &slots(9), &[])), e.source.clone()))
+    }
+
     /// The line the memory takes `line` for (its own text, as kept: a misreading finds the line it's
     /// a misreading of), or None.
     pub fn line_of(&self, line: &str) -> Option<String> {
@@ -691,6 +752,32 @@ mod tests {
         assert_eq!(key_of("{1}% done"), "{1} done");
         assert_eq!(key_of(&key_of("Love ya. {1}{2}{3}")), key_of("Love ya. {1}{2}{3}"));
         assert_eq!(key_of("a {b} {12x} c"), "a b 12x c");
+        let _ = std::fs::remove_dir_all(&path);
+    }
+
+    #[test]
+    fn a_piece_of_a_line_finds_the_whole_line() {
+        let path = tmp().with_extension("piece");
+        let _ = std::fs::remove_dir_all(&path);
+        let mut m = Memory::load(path.clone(), "ar");
+        let whole = "Hey Mo, it's Lucia and Jason here, had to get out of PG. Do you know anyone who can handle cars in Vice?";
+        m.put(whole, &vec![("مرحبًا مو، معك لوسيا وجيسون.".into(), None)], "reviewed");
+        m.put("Aside from that, there's a group that races down at Buckskin Swamp.", &vec![("غير ذلك".into(), None)], "reviewed");
+        let found = |m: &Memory, part: &str| m.containing(part).map(|(en, ar, _)| (en, ar));
+        // (its end, cut at the screen's top; its start, cut at the bottom; its middle, both)
+        for part in ["who can handle cars in Vice?", "Hey Mo, it's Lucia and Jason here,", "had to get out of PG. Do you know"] {
+            assert_eq!(found(&m, part).map(|f| f.1), Some("مرحبًا مو، معك لوسيا وجيسون.".to_string()), "{part}");
+        }
+        assert_eq!(found(&m, "who can handel cars in Vice?").map(|f| f.0), Some(key_of(whole)), "a misread letter");
+        // (too short to be sure of; words the line doesn't have; the whole line itself is `get`'s)
+        assert!(found(&m, "cars in Vice?").is_none());
+        assert!(found(&m, "who can fix bikes in Vice?").is_none());
+        assert!(found(&m, whole).is_none());
+        // (a piece two messages end with: which one it's a piece of can't be told)
+        m.put("Your account limit is $100,000. Visit the app for additional perks with our business partners.", &vec![("حدّك 100,000".into(), None)], "reviewed");
+        m.put("You're gold now: your limit is $500,000. Visit the app for additional perks with our business partners.", &vec![("حدّك 500,000".into(), None)], "reviewed");
+        assert!(found(&m, "Visit the app for additional perks with our business partners.").is_none());
+        assert_eq!(found(&m, "limit is $100,000. Visit the app for additional perks").map(|f| f.1), Some("حدّك 100,000".to_string()), "told apart by what's read of it");
         let _ = std::fs::remove_dir_all(&path);
     }
 
