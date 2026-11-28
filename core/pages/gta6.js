@@ -6351,12 +6351,13 @@ function mapPieces(f) {
   const zone = pxRect(f, { x: 0.82, y: 0.74, w: 0.165, h: 0.245 });
   const found = [];
   const take = (s) => {
-    const ws = s.words.filter((w) => /\p{L}{2}|^\d\p{L}$/u.test(w.text));
+    // (the small "2D VIEW" misread in a small picture, "20 VIEW", "2D VIEVV": its view by its number; its words kept)
+    const raw = s.words.map((w) => w.text).join(" ");
+    const view = /^([23])\s*[D0OQ]\b(?:\s+V\S*)?$|^([23])\s*[D0OQ]\s+V[I1l|]\S*/i.exec(raw.trim());
+    const ws = s.words.filter((w) => /\p{L}{2}|^\d\p{L}$/u.test(w.text) || (view && /^[23][D0OQ]?$/i.test(w.text)));
     if (!ws.length) return false;
     const read = ws.map((w) => w.text).join(" ");
-    // (the small "2D VIEW" misread in a small picture, "2D VIEVV": its view by its number)
-    const view = /^([23])\s*D/i.exec(read);
-    const hit = known(read, BUTTON_NAMES) || (view ? { en: view[1] + "D VIEW" } : null);
+    const hit = (view ? { en: (view[1] || view[2]) + "D VIEW" } : null) || known(read, BUTTON_NAMES);
     if (!hit || hit.cut) return false;
     const x0 = Math.min(...ws.map((w) => w.x)), x1 = Math.max(...ws.map((w) => w.x + w.w));
     const y0 = Math.min(...ws.map((w) => w.y)), y1 = Math.max(...ws.map((w) => w.y + w.h));
@@ -6734,8 +6735,10 @@ function infoCard(f, box) {
   }
   const ar = ownWord(out.title_en, true);
   if (ar) out.title_ar = ar;
-  // a place's name stays in English (a mission's, under its coloured line, or a task's, is translated)
-  else if (!box.line && isPlaceName(out.title_en)) Object.assign(out, { title_ar: out.title_en, title_fixed: true });
+  // a place's or vehicle's name stays in English ("LOST VISTA", "LA CASCARA MOTEL", "BF BANDITO"); a mission's or task's,
+  // told by its first word, a verb ("SEARCH FOR THE SKUNK APE"), is translated (a coloured line says neither: robbery
+  // tips and gangs' bases have one too)
+  else if (isPlaceName(out.title_en)) Object.assign(out, { title_ar: out.title_en, title_fixed: true });
   if (out.head_en) {
     const h = ownWord(out.head_en, true);
     if (h) out.head_ar = h;
@@ -6778,8 +6781,9 @@ function mapIndexOpen(f) {
 }
 
 // A place's name stays in English, as the game writes it (on signs, in the world, in other menus); a task's name ("Search
-// for the Skunk Ape", "Collect Chemicals for Kyle") is translated: told by its first word, a verb.
-const TASK_VERBS = /^(move|search|collect|catch|pawn|check|meditate|steal|fence|find|meet|deliver|visit|go|help|get|buy|sell|win|complete|explore|take|rob|hunt|race|follow|pick|drive|escape|investigate|talk|return|bring|survive|destroy|protect|track|photograph|learn|start|play|finish|recover|retrieve|kill|chase|stop|break|grab|smash|hold)/i;
+// for the Skunk Ape", "Collect Chemicals for Kyle") is translated: told by its first word, a verb (not one starting a name,
+// "Pawn & Gun - Port Gellhorn").
+const TASK_VERBS = /^(move|search|collect|catch|pawn|check|meditate|steal|fence|find|meet|deliver|visit|go|help|get|buy|sell|win|complete|explore|take|rob|hunt|race|follow|pick|drive|escape|investigate|talk|return|bring|survive|destroy|protect|track|photograph|learn|start|play|finish|recover|retrieve|kill|chase|stop|break|grab|smash|hold)\b(?!\s*[&\-–])/i;
 const isPlaceName = (en) => !TASK_VERBS.test(String(en).trim());
 
 // the index's sections, its title one of them (by the filters' column on its left)

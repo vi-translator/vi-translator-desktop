@@ -974,6 +974,32 @@ mod speaker_tests {
     }
 
     #[test]
+    fn an_icon_told_by_its_colour_is_cut_to_its_shape() {
+        // a greyed-out button: a grey (104) disc with a black ring, on a dark blue menu; cut by colour (`thr` 0), it
+        // comes out round, its corners transparent, not as a square of the menu
+        let (w, h) = (40u32, 40u32);
+        let mut rgba = vec![0u8; (w * h * 4) as usize];
+        for y in 0..h {
+            for x in 0..w {
+                let d = (((x as f32 - 19.5).powi(2) + (y as f32 - 19.5).powi(2)) as f32).sqrt();
+                let p: [u8; 3] = if d < 12.0 { [104, 104, 104] } else if d < 14.0 { [0, 0, 0] } else { [20, 22, 38] };
+                let i = ((y * w + x) * 4) as usize;
+                rgba[i..i + 4].copy_from_slice(&[p[0], p[1], p[2], 255]);
+            }
+        }
+        let c = Crop { rgba, w, h };
+        let url = icon_png(&c, (4, 4, 32, 32), 0).expect("an icon");
+        use base64::Engine as _;
+        let png = base64::engine::general_purpose::STANDARD.decode(url.trim_start_matches("data:image/png;base64,")).unwrap();
+        let img = image::load_from_memory(&png).unwrap().to_rgba8();
+        let (iw, ih) = img.dimensions();
+        assert_eq!(img.get_pixel(iw / 2, ih / 2)[3], 255, "the disc is there");
+        for (x, y) in [(0, 0), (iw - 1, 0), (0, ih - 1), (iw - 1, ih - 1), (3, 3)] {
+            assert_eq!(img.get_pixel(x, y)[3], 0, "corner {x},{y} left out");
+        }
+    }
+
+    #[test]
     fn a_white_and_a_grey_line_are_two_speakers() {
         let (c, w) = picture(&[("Do", (100, 10, 30, 20), 0, 210), ("not", (140, 10, 40, 20), 0, 215), ("move.", (190, 10, 60, 20), 0, 205), ("Idiot.", (150, 50, 60, 20), 1, 122)]);
         let parts = speaker_lines(&c, &w);
@@ -1382,9 +1408,12 @@ pub fn icon_png(c: &Crop, r: (u32, u32, u32, u32), thr: u8) -> Option<String> {
     let mut edge: Vec<u8> = (x0..x1).flat_map(|x| [lum(x, y0), lum(x, y1 - 1)]).chain((y0..y1).flat_map(|y| [lum(x0, y), lum(x1 - 1, y)])).collect();
     edge.sort_unstable();
     let bg = edge[edge.len() / 2];
-    // (a solid crop, `thr` 0, keeps everything: a grey disc on a bright purple stands out by its colour, not its
-    // brightness, and must still come out)
-    if thr > 0 && brightest < bg.saturating_add(40) {
+    // (`thr` 0: the icon told by its colour, not its brightness: a grey disc on a bright purple, a greyed-out
+    // button on a dark menu, a coloured picture; see icon_shape)
+    if thr == 0 {
+        return icon_shape(c, (x0, y0, x1, y1));
+    }
+    if brightest < bg.saturating_add(40) {
         return None; // no shape that stands out: nothing to cut
     }
     let thr = thr.min(((brightest as u32 + bg as u32) / 2) as u8);
@@ -1408,7 +1437,57 @@ pub fn icon_png(c: &Crop, r: (u32, u32, u32, u32), thr: u8) -> Option<String> {
     Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png)))
 }
 
-/// A button found by the space it leaves between words: its square cut out as it is (opaque).
+/// An icon cut out by its colour: the pixels unlike the background around it (the crop's border, its median colour)
+/// and what lies between them on each row, the rest transparent; so a disc comes out round, a picture that fills its
+/// square stays square. Nothing unlike the background: the square as it is.
+fn icon_shape(c: &Crop, (x0, y0, x1, y1): (u32, u32, u32, u32)) -> Option<String> {
+    use base64::Engine as _;
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+    let px = |x: u32, y: u32| {
+        let i = ((y * c.w + x) * 4) as usize;
+        [c.rgba[i] as i32, c.rgba[i + 1] as i32, c.rgba[i + 2] as i32]
+    };
+    let border: Vec<[i32; 3]> = (x0..x1).flat_map(|x| [px(x, y0), px(x, y1 - 1)]).chain((y0..y1).flat_map(|y| [px(x0, y), px(x1 - 1, y)])).collect();
+    let median = |k: usize| {
+        let mut v: Vec<i32> = border.iter().map(|p| p[k]).collect();
+        v.sort_unstable();
+        v[v.len() / 2]
+    };
+    let bg = [median(0), median(1), median(2)];
+    let far = |p: [i32; 3]| (0..3).map(|k| (p[k] - bg[k]).abs()).max().unwrap_or(0) > 36;
+    if !(y0..y1).any(|y| (x0..x1).any(|x| far(px(x, y)))) {
+        return icon_png_plain(c, (x0, y0, x1 - x0, y1 - y0));
+    }
+    let mut img = image::RgbaImage::new(x1 - x0, y1 - y0);
+    for y in y0..y1 {
+        let first = (x0..x1).find(|&x| far(px(x, y)));
+        let last = (x0..x1).rev().find(|&x| far(px(x, y)));
+        for x in x0..x1 {
+            let p = px(x, y);
+            let a = match (first, last) {
+                (Some(f), Some(l)) if x >= f && x <= l => 255,
+                (Some(f), Some(l)) if x + 1 == f || x == l + 1 => 110, // anti-aliased rim
+                _ => 0,
+            };
+            img.put_pixel(x - x0, y - y0, image::Rgba([p[0] as u8, p[1] as u8, p[2] as u8, a]));
+        }
+    }
+    let mut png = Vec::new();
+    image::DynamicImage::ImageRgba8(img).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
+    Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png)))
+}
+
+/// A button found by the space it leaves between words: cut out by its colour (see icon_shape).
+fn icon_png_shaped(c: &Crop, (x0, y0, w, h): (u32, u32, u32, u32)) -> Option<String> {
+    if w == 0 || h == 0 || x0 + w > c.w || y0 + h > c.h {
+        return None;
+    }
+    icon_shape(c, (x0, y0, x0 + w, y0 + h))
+}
+
+/// A square cut out as it is (opaque): what icon_shape falls back to.
 fn icon_png_plain(c: &Crop, r: (u32, u32, u32, u32)) -> Option<String> {
     use base64::Engine as _;
     let (x0, y0, w, h) = r;
@@ -1727,7 +1806,7 @@ pub fn text_with_icons(c: &Crop, words: &[Word]) -> (String, Vec<String>, Option
                     grow(*r);
                     // one of the game's own icons, recognised: the clean one the app carries; else cut from the line
                     let known = crate::game_icons::identify(&c.into(), *r).and_then(crate::game_icons::data_url).map(String::from);
-                    let png = known.or_else(|| if plain_icons.contains(r) { icon_png_plain(c, *r) } else { icon_png(c, *r, thr_used) });
+                    let png = known.or_else(|| if plain_icons.contains(r) { icon_png_shaped(c, *r) } else { icon_png(c, *r, thr_used) });
                     if let Some(png) = png {
                         // "<height relative to the text>|<png>": the Arabic draws it at the same proportion
                         // (GTA's L2/R2 are smaller than the text, ✕/△ discs a bit larger)
