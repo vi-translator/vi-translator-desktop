@@ -7,7 +7,7 @@ default-members = ["src-tauri", "core", "core/ffi", "ps", "xbox"]
 
 [workspace.package]
 # the app's version (the release workflow sets it from the tag)
-version = "1.4.4"
+version = "1.5.0"
 
 # Optimise dependencies even in debug builds (image scaling and ONNX glue are slow unoptimised).
 [profile.dev.package."*"]
