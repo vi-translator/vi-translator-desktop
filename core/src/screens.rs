@@ -158,8 +158,8 @@ pub struct CardRow {
     pub value_en: String,
     pub value_ar: String,
     pub value_fg: String,
-    /// a value that is only icons ("👕🔫"): the game's picture of it (PNG data URL)
-    pub value_pic: String,
+    /// a value that is only icons ("👕🔫"): the game's, each cut out to its shape (PNG data URLs)
+    pub value_icons: Vec<String>,
 }
 
 /// A text box: a menu's list item or paragraph covered by a translated replica, or any text a script
@@ -238,7 +238,8 @@ pub fn limit(l: &mut ScreenLayout) {
             png(&mut x.icon);
         }
         for r in c.rows.iter_mut() {
-            png(&mut r.value_pic);
+            r.value_icons.retain(|i| i.len() <= ICON && i.starts_with("data:image/png;base64,"));
+            r.value_icons.truncate(8);
         }
     }
     l.buttons.truncate(16);

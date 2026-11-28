@@ -1297,8 +1297,11 @@ window.AS = (() => {
           marginTop: i ? "0" : `${rh * 0.4}px`,
         });
         row.appendChild(el({ fontFamily: titleFont, fontWeight: "700", fontSize: `${rh * 1.25}px` }, r.ar || r.en));
-        if (r.value_pic) row.appendChild(img(r.value_pic, 0, rh * 1.3));
-        else if (r.value_en) row.appendChild(el({ fontFamily: titleFont, fontWeight: "700", fontSize: `${rh * 1.25}px`, color: r.value_fg || "#ffffff", direction: "ltr" }, r.value_ar || r.value_en));
+        if ((r.value_icons || []).length) {
+          const icons = el({ display: "flex", alignItems: "center", gap: `${rh * 0.45}px`, direction: "ltr" });
+          for (const src of r.value_icons) icons.appendChild(img(src, 0, rh * 1.3));
+          row.appendChild(icons);
+        } else if (r.value_en) row.appendChild(el({ fontFamily: titleFont, fontWeight: "700", fontSize: `${rh * 1.25}px`, color: r.value_fg || "#ffffff", direction: "ltr" }, r.value_ar || r.value_en));
         card.appendChild(row);
       });
       // Under the game's box; where that covers the page's other translations (the map's buttons bottom right, its
@@ -1580,7 +1583,10 @@ window.AS = (() => {
         if (b.icon && b.icon_rect) {
           const img = document.createElement("img");
           img.src = b.icon;
-          Object.assign(img.style, { height: `${b.icon_rect.h * H}px`, width: `${b.icon_rect.w * W}px`, objectFit: "contain", flex: "none", display: "block" });
+          // (a greyed-out button: the clean white icon as dim as its grey word)
+          const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(b.fg || "");
+          const lum = m ? Math.max(parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)) : 255;
+          Object.assign(img.style, { height: `${b.icon_rect.h * H}px`, width: `${b.icon_rect.w * W}px`, objectFit: "contain", flex: "none", display: "block", opacity: lum < 200 ? (lum / 255).toFixed(2) : "1" });
           item.appendChild(img);
         }
         const label = document.createElement("span");

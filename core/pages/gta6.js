@@ -6404,6 +6404,11 @@ function mapPieces(f) {
     b.ic = ic;
     out.push(b);
   }
+  // The map's buttons always have the same buttons: on a PlayStation (any icon of the column told as one of the app's
+  // PS5 icons) each gets the app's clean icon, cut to its shape; otherwise each is cut from the frame by its shape,
+  // or left out (never a square of the map behind it).
+  const MAP_ICONS = { "RECENTER": "L3", "2D VIEW": "R3", "3D VIEW": "R3", "ADD MARKER": "SQUARE", "REMOVE MARKER": "SQUARE", "SET DESTINATION": "X", "EXIT": "CIRCLE", "CLOSE MENU": "CIRCLE" };
+  const ps5 = typeof f.gameIconAt === "function" && iconAt.some((ic) => !!f.gameIconAt(ic));
   // (an icon not told from the bright map behind it: where the others are, the column's icons one under another)
   const icS = iconAt.length ? iconAt.map((o) => o.h).sort((a, b) => a - b)[Math.floor(iconAt.length / 2)] : 0;
   const icX = iconAt.length ? iconAt.map((o) => o.x + o.w / 2).sort((a, b) => a - b)[Math.floor(iconAt.length / 2)] : 0;
@@ -6420,9 +6425,8 @@ function mapPieces(f) {
     }
     if (ic) {
       b.icon_rect = f.box(ic.x, ic.y, ic.w, ic.h);
-      const name = typeof f.gameIconAt === "function" && f.gameIconAt(ic);
-      // (a greyed-out icon, or one in a place guessed: the game's picture there as it is)
-      const icon = (name && vi.gameIcon(name)) || f.icon(ic, guessed ? 0 : 140) || f.icon(ic, 0);
+      const name = (ps5 && MAP_ICONS[b.en]) || (typeof f.gameIconAt === "function" && f.gameIconAt(ic));
+      const icon = (name && vi.gameIcon(name)) || (!guessed && f.icon(ic, 140));
       if (icon) b.icon = icon;
     }
   }
@@ -6487,45 +6491,78 @@ function infoBox(f) {
   // (over the fog, as dark as the box, the box is told by its colour: bluish grey, the fog a deeper blue)
   const rules = [{ bright: [0, 100] }, { bright: [0, 100], rb: [-24, 4] }];
   const runsOf = rules.map((rule) => f.runs(R, rule));
-  for (const runs of runsOf) {
-    const rows = [];
-    // (a run that reaches the zone's own edge is the fog going on to the screen's side, not the box's edge)
-    const inside = (s, e) => s > R.x + 2 && e < R.x + R.w - 2;
-    runs.forEach(([s, n], i) => { if (n >= f.w * 0.12 && n <= f.w * 0.5 && inside(s, s + n)) rows.push({ y: R.y + i, s, e: s + n }); });
-    if (rows.length < f.h * 0.02) continue;
-    const mode = (vals) => {
-      const count = new Map();
-      for (const v of vals) for (let d = -2; d <= 2; d++) count.set(v + d, (count.get(v + d) || 0) + 1);
-      let best = null;
-      for (const [v, n] of count) if (!best || n > best[1]) best = [v, n];
-      return best ? best[0] : 0;
-    };
-    const x0 = mode(rows.map((r) => r.s)), x1 = mode(rows.map((r) => r.e));
-    if (x1 - x0 < f.w * 0.12) continue;
-    // its rows: both edges where they are (n counts those); one of them where it is and the run going on past the
-    // other (dark fog against that side) still marks the box's extent
-    const both = (r) => Math.abs(r.s - x0) <= 3 && Math.abs(r.e - x1) <= 3;
-    const one = (r) => (Math.abs(r.s - x0) <= 3 && r.e >= x1 - 3) || (Math.abs(r.e - x1) <= 3 && r.s <= x0 + 3);
-    // (by either rule: a row over the fog on both sides is told by the box's colour)
-    const all = [];
-    for (let i = 0; i < runsOf[0].length; i++) {
-      const rs = runsOf.map((rr) => ({ y: R.y + i, s: rr[i][0], e: rr[i][0] + rr[i][1] }));
-      // (fog on both sides: its solid left part still starts on its left edge; its see-through right part takes the
-      // fog's colour)
-      const part = (r) => Math.abs(r.s - x0) <= 3 && r.e - r.s >= (x1 - x0) * 0.6 && r.e <= x1 + 3;
-      const r = rs.find(both) || rs.find(one) || rs.find(part);
-      if (r) all.push(r);
-    }
-    // together (its lines of text between them): the biggest group
-    const groups = [];
-    for (const r of all) {
-      const g = groups[groups.length - 1];
-      const k = both(r) ? 1 : 0;
-      if (g && r.y - g.y1 <= f.h * 0.06) Object.assign(g, { y1: r.y, n: g.n + k });
-      else groups.push({ y0: r.y, y1: r.y, n: k });
-    }
-    const g = groups.sort((a, b) => b.n - a.n)[0];
-    if (!g || g.n < f.h * 0.02 || g.y1 - g.y0 < f.h * 0.05) continue;
+  const mode = (vals) => {
+    const count = new Map();
+    for (const v of vals) for (let d = -2; d <= 2; d++) count.set(v + d, (count.get(v + d) || 0) + 1);
+    let best = null;
+    for (const [v, n] of count) if (!best || n > best[1]) best = [v, n];
+    return best ? best[0] : 0;
+  };
+  const rowsAll = [];
+  runsOf.forEach((runs) => runs.forEach(([s, n], i) => { if (n >= f.w * 0.12 && s > R.x + 2) rowsAll.push({ y: R.y + i, s, e: s + n }); }));
+  if (rowsAll.length < f.h * 0.02) return null;
+  // its left edge: where long dark runs start, row after row (the fog of a map still loading has straight edges
+  // too: the likeliest few, each checked)
+  const counts = new Map();
+  for (const r of rowsAll) for (let d = -2; d <= 2; d++) counts.set(r.s + d, (counts.get(r.s + d) || 0) + 1);
+  const tried = [];
+  for (const [x] of [...counts].sort((a, b) => b[1] - a[1])) {
+    if (tried.length >= 4) break;
+    if (tried.some((t) => Math.abs(t - x) <= 6)) continue;
+    tried.push(x);
+    const box = boxAt(f, R, runsOf, rowsAll, x);
+    if (box) return box;
+  }
+  return null;
+}
+
+/** The info box with its left edge at x0, or null (see infoBox). */
+function boxAt(f, R, runsOf, rowsAll, x0) {
+  const mode = (vals) => {
+    const count = new Map();
+    for (const v of vals) for (let d = -2; d <= 2; d++) count.set(v + d, (count.get(v + d) || 0) + 1);
+    let best = null;
+    for (const [v, n] of count) if (!best || n > best[1]) best = [v, n];
+    return best ? best[0] : 0;
+  };
+  const atLeft = rowsAll.filter((r) => Math.abs(r.s - x0) <= 3);
+  if (new Set(atLeft.map((r) => r.y)).size < f.h * 0.02) return null;
+  // its right edge: where those runs end (a run on into the fog, out to the zone's side, doesn't say); none
+  // clear (its see-through right part over the fog looks like the fog): the game's box is always this wide
+  const ends = atLeft.filter((r) => r.e < R.x + R.w - 2 && r.e - r.s <= f.w * 0.33).map((r) => r.e);
+  const xe = ends.length ? mode(ends) : 0;
+  const clear = ends.filter((e) => Math.abs(e - xe) <= 3).length >= f.h * 0.02 && xe - x0 >= f.w * 0.25 && xe - x0 <= f.w * 0.31;
+  const x1 = clear ? xe : x0 + Math.round(f.w * 0.2786);
+  // its rows: starting on its left edge and reaching its right one (or on past it, into the fog), or its solid
+  // left part at least (fog on both sides, its see-through right part the fog's colour)
+  const inBox = (r) => Math.abs(r.s - x0) <= 3 && (r.e >= x1 - 3 || r.e - r.s >= (x1 - x0) * 0.6);
+  const both = (r) => Math.abs(r.s - x0) <= 3 && Math.abs(r.e - x1) <= 3;
+  const all = [];
+  for (let i = 0; i < runsOf[0].length; i++) {
+    const rs = runsOf.map((rr) => ({ y: R.y + i, s: rr[i][0], e: rr[i][0] + rr[i][1] }));
+    const r = rs.find(both) || rs.find(inBox);
+    if (r) all.push(r);
+  }
+  // together (its lines of text between them): the biggest group
+  const groups = [];
+  for (const r of all) {
+    const g = groups[groups.length - 1];
+    if (g && r.y - g.y1 <= f.h * 0.06) Object.assign(g, { y1: r.y, n: g.n + 1 });
+    else groups.push({ y0: r.y, y1: r.y, n: 1 });
+  }
+  const g = groups.sort((a, b) => b.n - a.n)[0];
+  if (!g || g.n < f.h * 0.03 || g.y1 - g.y0 < f.h * 0.05) return null;
+  // its left part is all but solid: the box's own dark colour whatever is behind it (the fog is a deeper blue)
+  const solid = f.median({ x: x0 + 3, y: g.y0, w: Math.max(3, Math.round(f.w * 0.004)), h: g.y1 - g.y0 }, { step_x: 1, step_y: 2 });
+  if (!solid || Math.abs(solid.r - 21) > 14 || Math.abs(solid.g - 20) > 14 || Math.abs(solid.b - 34) > 14) return null;
+  // (its width taken, not seen: its left edge must be a real one, the map brighter just left of it than the box
+  // just right of it, down most of its height)
+  if (!clear) {
+    const h = g.y1 - g.y0, k = Math.max(2, Math.round(f.w * 0.003));
+    const outside = f.mean({ x: x0 - 2 * k - 2, y: g.y0, w: k, h }, { step: 2 }), inside = f.mean({ x: x0 + 3, y: g.y0, w: k, h }, { step: 2 });
+    if (!(outside > inside + 25)) return null;
+  }
+  {
     let y0 = g.y0;
     // the coloured line along its top (a mission's pink, a gang's gold): a few rows of one colour across it, there or
     // just over it (the map's water, as colourful, has no such thin band)
@@ -6641,7 +6678,7 @@ function infoCard(f, box) {
       if (valued || iconsOnly) {
         const value = valued ? l.segs.slice(1) : [];
         const vtext = value.map(words).join(" ");
-        const row = { en: label, ar: ownWord(label, true), value_en: vtext, value_ar: "", value_fg: "#ffffff", value_pic: "" };
+        const row = { en: label, ar: ownWord(label, true), value_en: vtext, value_ar: "", value_fg: "#ffffff", value_icons: [] };
         const vx0 = value.length ? value[0].x0 : first.x1 + Math.round(h);
         if (vtext && /\p{L}{2}|\d/u.test(vtext)) {
           // (money and numbers as they are, a word translated, "LOW"; in its colour: a level's green, orange, red)
@@ -6650,9 +6687,12 @@ function infoCard(f, box) {
           if (fg) row.value_fg = hex(fg);
           row.value_ar = valueWord(vtext);
         } else {
-          // only icons ("👕🔫", "? ? ?"): the game's picture of them, cut out
-          const ic = f.pixels({ x: vx0, y: l.y0 - 3, w: box.x1 - Math.round(pad * 0.5) - vx0, h: l.y1 - l.y0 + 6 }, { step: 1, bright: [150, 255] });
-          if (ic.box) row.value_pic = f.icon(ic.box, 0) || "";
+          // only icons ("👕🔫", "? ? ?"): each of the game's, cut out to its shape
+          const zone = { x: vx0, y: l.y0 - 4, w: box.x1 - Math.round(pad * 0.5) - vx0, h: l.y1 - l.y0 + 8 };
+          for (const b of f.blobs(zone, { gap: 2, bright: [150, 255] }).filter((o) => o.h >= h * 0.5)) {
+            const icon = shapeIcon(f, b);
+            if (icon) row.value_icons.push(icon);
+          }
           row.value_en = "";
         }
         out.rows.push(row);
@@ -6665,7 +6705,7 @@ function infoCard(f, box) {
       const en = l.segs.flatMap((s) => s.words).filter((w) => w.x > left + h * 0.9 && /\p{L}|\d|^[-–]$/u.test(w.text)).map((w) => w.text).join(" ");
       if (!en) continue;
       const iw = Math.max(lx - left - Math.round(h * 0.3), 0);
-      const icon = iw >= h * 0.5 ? f.icon({ x: left, y: l.y0 - 2, w: iw, h: l.y1 - l.y0 + 4 }, 0) || "" : "";
+      const icon = iw >= h * 0.5 ? shapeIcon(f, { x: left, y: l.y0 - 3, w: iw, h: l.y1 - l.y0 + 6 }) : "";
       out.sub.push({ en, ar: ownWord(en, true), icon, h: h / f.h, caps: isCaps(en) });
       continue;
     }
@@ -6684,6 +6724,14 @@ function infoCard(f, box) {
     if (h) out.head_ar = h;
   }
   return out;
+}
+
+/** A small white icon of the box (a clock, a "$", a shirt) cut out to its shape: its bright pixels only, the box's
+ *  dark see-through background left out; "" when nothing stands out. */
+function shapeIcon(f, r) {
+  const ink = f.pixels(r, { step: 1, bright: [150, 255] });
+  if (!ink.box) return "";
+  return f.icon(ink.box, 140) || "";
 }
 
 /** A value in the box's table: its words in the player's language where the script has them ("LOW", "OFF-ROAD"),
