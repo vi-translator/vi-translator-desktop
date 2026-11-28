@@ -6380,6 +6380,14 @@ function mapPieces(f) {
     }
   }
   found.sort((a, b) => a.y0 - b.y0);
+  // one letter height for every button, centred on each (a line read again, closer, can measure taller)
+  if (found.length) {
+    const hs = found.map((b) => b.y1 - b.y0).sort((a, b) => a - b), mh = hs[Math.floor(hs.length / 2)];
+    for (const b of found) {
+      const m = (b.y0 + b.y1) / 2;
+      Object.assign(b, { y0: Math.round(m - mh / 2), y1: Math.round(m - mh / 2) + mh });
+    }
+  }
   const out = [];
   const iconAt = [];
   for (const p of found) {
@@ -6477,9 +6485,13 @@ function objectiveCard(f) {
 function infoBox(f) {
   const R = pxRect(f, { x: 0.3, y: 0.085, w: 0.69, h: 0.84 });
   // (over the fog, as dark as the box, the box is told by its colour: bluish grey, the fog a deeper blue)
-  for (const rule of [{ bright: [0, 100] }, { bright: [0, 100], rb: [-24, 4] }]) {
+  const rules = [{ bright: [0, 100] }, { bright: [0, 100], rb: [-24, 4] }];
+  const runsOf = rules.map((rule) => f.runs(R, rule));
+  for (const runs of runsOf) {
     const rows = [];
-    f.runs(R, rule).forEach(([s, n], i) => { if (n >= f.w * 0.12 && n <= f.w * 0.5) rows.push({ y: R.y + i, s, e: s + n }); });
+    // (a run that reaches the zone's own edge is the fog going on to the screen's side, not the box's edge)
+    const inside = (s, e) => s > R.x + 2 && e < R.x + R.w - 2;
+    runs.forEach(([s, n], i) => { if (n >= f.w * 0.12 && n <= f.w * 0.5 && inside(s, s + n)) rows.push({ y: R.y + i, s, e: s + n }); });
     if (rows.length < f.h * 0.02) continue;
     const mode = (vals) => {
       const count = new Map();
@@ -6494,7 +6506,16 @@ function infoBox(f) {
     // other (dark fog against that side) still marks the box's extent
     const both = (r) => Math.abs(r.s - x0) <= 3 && Math.abs(r.e - x1) <= 3;
     const one = (r) => (Math.abs(r.s - x0) <= 3 && r.e >= x1 - 3) || (Math.abs(r.e - x1) <= 3 && r.s <= x0 + 3);
-    const all = f.runs(R, rule).map(([s, n], i) => ({ y: R.y + i, s, e: s + n })).filter((r) => both(r) || one(r));
+    // (by either rule: a row over the fog on both sides is told by the box's colour)
+    const all = [];
+    for (let i = 0; i < runsOf[0].length; i++) {
+      const rs = runsOf.map((rr) => ({ y: R.y + i, s: rr[i][0], e: rr[i][0] + rr[i][1] }));
+      // (fog on both sides: its solid left part still starts on its left edge; its see-through right part takes the
+      // fog's colour)
+      const part = (r) => Math.abs(r.s - x0) <= 3 && r.e - r.s >= (x1 - x0) * 0.6 && r.e <= x1 + 3;
+      const r = rs.find(both) || rs.find(one) || rs.find(part);
+      if (r) all.push(r);
+    }
     // together (its lines of text between them): the biggest group
     const groups = [];
     for (const r of all) {
@@ -6584,11 +6605,12 @@ function infoCard(f, box) {
     out.head_h = capH(head[0]) / f.h;
   }
   // the name, and the picture left of it (a character's face, a gang's badge)
-  const tw2 = title.segs.flatMap(letters);
+  // (its first word may be a number, "247 - EMERALD SPRINGS")
+  const tw2 = title.segs.flatMap((s) => s.words.filter((w) => /\p{L}{2}|\d/u.test(w.text)));
   if (!tw2.length) return null;
   const tx = Math.min(...tw2.map((w) => w.x));
   // (from its first word of letters: "A" of "CATCH A BIGGER FISH" too, the picture before it read as a letter not)
-  const tw = title.segs.flatMap((s) => s.words).filter((w) => w.x >= tx && /\p{L}|\d/u.test(w.text));
+  const tw = title.segs.flatMap((s) => s.words).filter((w) => w.x >= tx && /\p{L}|\d|^[&'\-–]+$/u.test(w.text));
   out.title_en = tw.map((w) => w.text).join(" ");
   out.title_h = capH(title) / f.h;
   if (tx - left > capH(title) * 1.2) {
@@ -6602,7 +6624,11 @@ function infoCard(f, box) {
     const first = l.segs[0], last = l.segs[l.segs.length - 1];
     const h = capH(l) || first.h;
     const lx = lw.length ? Math.min(...lw.map((w) => w.x)) : first.x0;
-    const iconBefore = lx - left > h * 0.9;
+    // (a lone capital first, "A flyer …", "A group …", is a word when the next one follows a space away; an icon read
+    // as a letter, "J Jason only", stands further off)
+    const w0 = first.words[0], w1 = first.words[1];
+    const word = w0 && w1 && /^[AI]$/.test(w0.text) && w1.x - (w0.x + w0.w) < h * 0.45 && w0.x - left < h * 0.5;
+    const iconBefore = lx - left > h * 0.9 && !word;
     // a row of the table: a label in small capitals on the left, its value against the right edge (or only icons
     // there, "FEATURES 👕🔫"); the stash's rows have an icon before their label
     const labelWords = first.words.filter((w) => /\p{L}/u.test(w.text) && w.x >= lx - 2);
@@ -6684,6 +6710,29 @@ function mapIndexOpen(f) {
   return panel.count > all * 0.6 && plainTitle(f);
 }
 
+// the index's sections, its title one of them (by the filters' column on its left)
+const INDEX_TITLES = ["PERSONAL", "STORY", "ROBBERIES", "ACTIVITIES", "EXPLORATION", "VEHICLES", "AMMU-NATIONS", "STYLE", "FOOD & DRINK"];
+/** Letters apart (edits from one to the other). */
+function editDistance(a, b) {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+/** The index's title by its letters, read with a slip or two ("AMMI-ENATIONS"): the section's name, or null. */
+function indexTitle(read) {
+  const k = wordKey(read);
+  let best = null;
+  for (const t of INDEX_TITLES) {
+    const d = editDistance(k, wordKey(t));
+    if (d <= Math.max(1, Math.floor(wordKey(t).length / 5)) && (!best || d < best.d)) best = { en: t, d };
+  }
+  return best && best.en;
+}
+
 /** The index: its title and its list (the selected row on its white bar); its words where the script has them
  *  (headings and kinds of place), names to the translator. */
 function readMapIndex(f) {
@@ -6692,7 +6741,7 @@ function readMapIndex(f) {
     title = textBoxes(f, segments(f, pxRect(f, { x: 0.006, y: 0.01, w: 0.27, h: 0.065 }), { scale }), 0).filter((b) => /\p{L}{2}/u.test(b.en));
     if (title.length) break;
   }
-  title.forEach((b) => Object.assign(b, { item: false, heading: true, weight: 700 }));
+  title.forEach((b) => Object.assign(b, { item: false, heading: true, weight: 700, en: indexTitle(b.en) || b.en }));
   const list = pxRect(f, { x: 0.05, y: 0.085, w: 0.23, h: 0.82 });
   let segs = segments(f, list, { scale: 1 });
   // the selected row's dark letters on its white bar, read on their own when the whole read missed them
@@ -6703,7 +6752,8 @@ function readMapIndex(f) {
   }
   const menu = textBoxes(f, segs, f.w).filter((b) => /\p{L}{2}/u.test(b.en));
   for (const m of [...title, ...menu]) {
-    const ar = ownWord(m.en, true);
+    // (titles and headings in capitals by a near spelling too, "AMMI-ENATIONS"; names exactly)
+    const ar = ownWord(m.en, !isCaps(m.en));
     if (ar) Object.assign(m, { ar, fixed: true });
   }
   for (const m of menu) {

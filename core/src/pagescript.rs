@@ -1446,6 +1446,18 @@ mod built_in_tests {
         assert!((x0 - 1031.0).abs() <= 6.0 && (x1 - 1565.0).abs() <= 6.0 && (y0 - 414.0).abs() <= 8.0, "{k}");
         assert!(k["box"]["line"]["colour"].is_string(), "a mission's pink line: {k}");
     }
+
+    #[test]
+    fn a_box_over_the_fog_keeps_its_own_edges() {
+        // the map's dark fog right of the box, out to the screen's side: the box's own right edge, not the fog's
+        // (it was taken for the box's, a twin twice as wide), and its whole height with fog on both sides
+        let k = pause_kind("map_index_fog.png");
+        assert_eq!(k["kind"], "mapindex", "{k}");
+        let [x0, y0, x1, y1] = box_1080(&k);
+        // (the game's box: x 1031 … 1565, y 392 … 688 at 1080p)
+        assert!((x0 - 1031.0).abs() <= 6.0 && (x1 - 1565.0).abs() <= 6.0, "{k}");
+        assert!((y0 - 392.0).abs() <= 8.0 && (y1 - 688.0).abs() <= 8.0, "{k}");
+    }
 }
 
 #[cfg(test)]

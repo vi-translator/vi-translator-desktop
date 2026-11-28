@@ -1317,11 +1317,18 @@ window.AS = (() => {
         && !avoid.some((a) => x < a.x + a.w && a.x < x + cw && y < a.y + a.h && a.y < y + ch);
       const spots = [[gx, gb + gap], [gx, gy - gap - ch], [gx - gap - cw, gy]];
       const spot = spots.find((p) => free(p[0], p[1]));
+      // (above it: held by its bottom edge, so it grows upward when its pictures or fonts come in, never over the
+      // game's box)
+      const above = (y) => {
+        card.style.top = "auto";
+        card.style.bottom = `${H - (gy - gap)}px`;
+      };
       if (spot) {
         card.style.left = `${spot[0]}px`;
-        card.style.top = `${spot[1]}px`;
+        if (spot === spots[1]) above();
+        else card.style.top = `${spot[1]}px`;
       } else if (gb + gap + ch > H && gy - gap - ch >= 0) {
-        card.style.top = `${gy - gap - ch}px`;
+        above();
       }
     };
 
