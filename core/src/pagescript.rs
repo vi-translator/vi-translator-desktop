@@ -1397,6 +1397,55 @@ mod built_in_tests {
         assert!(p.options.iter().filter(|o| o.id.starts_with("pause_")).all(|o| o.on && o.inherits == "pause_menu"));
         assert_eq!(p.options.iter().filter(|o| o.inherits == "pause_menu").count(), 8);
     }
+
+    /// A frame the game saved (`tests/frames`, cut down to 720p: the size of the phones' PS5 stream).
+    fn game_frame(name: &str) -> FrameData {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/frames").join(name);
+        let img = image::open(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display())).to_rgba8();
+        let (w, h) = img.dimensions();
+        FrameData { w, h, rgba: img.into_raw(), seq: 1 }
+    }
+
+    /// What the pause menu's `present` says of a frame (pixels only: no OCR needed).
+    fn pause_kind(name: &str) -> serde_json::Value {
+        let p = Pages::load(built_in("gta6").expect("carried")).expect("loads");
+        p.call("gta6_pause", "present", &game_frame(name), None, &serde_json::Value::Null)
+    }
+
+    /// The info box's place in 1080p pixels (the frames are 720p).
+    fn box_1080(k: &serde_json::Value) -> [f64; 4] {
+        let b = &k["box"];
+        let s = 1080.0 / 720.0;
+        [b["x0"].as_f64().unwrap() * s, b["y0"].as_f64().unwrap() * s, b["x1"].as_f64().unwrap() * s, b["y1"].as_f64().unwrap() * s]
+    }
+
+    #[test]
+    fn the_map_and_the_box_of_the_place_under_the_cursor() {
+        // the map (its bar on top, MAP in pink) with a mission's box: its edges, its lavender line on top
+        let k = pause_kind("map_box.png");
+        assert_eq!(k["kind"], "hub", "{k}");
+        let [x0, y0, x1, y1] = box_1080(&k);
+        // (the game's box: x 1031 … 1565, y 437 … 641 at 1080p)
+        assert!((x0 - 1031.0).abs() <= 6.0 && (x1 - 1565.0).abs() <= 6.0, "{k}");
+        assert!((y0 - 437.0).abs() <= 6.0 && (y1 - 641.0).abs() <= 6.0, "{k}");
+        let colour = k["box"]["line"]["colour"].as_str().expect("its line");
+        let rgb: Vec<i64> = (0..3).map(|i| i64::from_str_radix(&colour[1 + 2 * i..3 + 2 * i], 16).unwrap()).collect();
+        assert!(rgb[2] > 200 && rgb[0] > 150 && rgb[1] < rgb[0], "lavender, {colour}");
+        // the map with no box up: the map, no box
+        let k = pause_kind("map_plain.png");
+        assert_eq!(k["kind"], "hub", "{k}");
+        assert!(k["box"].is_null(), "{k}");
+    }
+
+    #[test]
+    fn the_maps_index_open_on_the_left() {
+        // the index over the map's left side (its bar on top hidden): its own kind of page, the box still told
+        let k = pause_kind("map_index_box.png");
+        assert_eq!(k["kind"], "mapindex", "{k}");
+        let [x0, y0, x1, _] = box_1080(&k);
+        assert!((x0 - 1031.0).abs() <= 6.0 && (x1 - 1565.0).abs() <= 6.0 && (y0 - 414.0).abs() <= 8.0, "{k}");
+        assert!(k["box"]["line"]["colour"].is_string(), "a mission's pink line: {k}");
+    }
 }
 
 #[cfg(test)]

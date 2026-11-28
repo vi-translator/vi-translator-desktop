@@ -96,7 +96,8 @@ pub struct ScreenLayout {
 }
 
 /// A box of the game's (the map's objective: a picture and a name over a sentence, on a dark box under a
-/// coloured line) drawn again just under it, translated, in its look.
+/// coloured line; the map's info box of the place under the cursor, with a heading, short lines and a table)
+/// drawn again just under it, translated, in its look.
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct Card {
@@ -115,6 +116,48 @@ pub struct Card {
     pub text_en: String,
     pub text_ar: String,
     pub text_h: f64,
+    /// a twin of the game's box: the same width, at least its height, right under it (above it when there's no
+    /// room under it), each part in its place (the map's info box)
+    pub twin: bool,
+    /// the band behind the heading (a CSS colour), darker than the rest of the box
+    pub head_bg: String,
+    /// a heading over the name (a mission's giver, "DUNK'S ROBBERY TIPS"), and its letter height
+    pub head_en: String,
+    pub head_ar: String,
+    pub head_h: f64,
+    /// short lines under the name, each after its icon ("Goods to sell", "Come back at night")
+    pub sub: Vec<CardLine>,
+    /// the table under the sentence: a label on the left, its value against the right edge ("SECURITY … LOW")
+    pub rows: Vec<CardRow>,
+    pub rows_h: f64,
+}
+
+/// A short line of a card, after its icon.
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct CardLine {
+    pub en: String,
+    pub ar: String,
+    /// its icon (PNG data URL), or ""
+    pub icon: String,
+    /// letter height (frame fraction)
+    pub h: f64,
+    /// in capitals (the game's small capitals: "'84 BOBCAT XL")
+    pub caps: bool,
+}
+
+/// A row of a card's table.
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct CardRow {
+    pub en: String,
+    pub ar: String,
+    /// its value's text ("LOW", "$1,800 - $2,200"), its translation, its colour
+    pub value_en: String,
+    pub value_ar: String,
+    pub value_fg: String,
+    /// a value that is only icons ("👕🔫"): the game's picture of it (PNG data URL)
+    pub value_pic: String,
 }
 
 /// A text box: a menu's list item or paragraph covered by a translated replica, or any text a script
@@ -180,9 +223,20 @@ pub fn limit(l: &mut ScreenLayout) {
     }
     l.labels.truncate(48);
     l.cards.truncate(8);
+    let png = |p: &mut String| {
+        if p.len() > ICON || !p.starts_with("data:image/png;base64,") {
+            p.clear();
+        }
+    };
     for c in l.cards.iter_mut() {
-        if c.pic.len() > ICON || !c.pic.starts_with("data:image/png;base64,") {
-            c.pic.clear();
+        png(&mut c.pic);
+        c.sub.truncate(8);
+        c.rows.truncate(16);
+        for x in c.sub.iter_mut() {
+            png(&mut x.icon);
+        }
+        for r in c.rows.iter_mut() {
+            png(&mut r.value_pic);
         }
     }
     l.buttons.truncate(16);
@@ -216,6 +270,9 @@ pub fn limit(l: &mut ScreenLayout) {
     for x in l.labels.iter_mut() {
         fix(&mut x.rect);
     }
+    for c in l.cards.iter_mut() {
+        fix(&mut c.rect);
+    }
     for m in l.menu.iter_mut() {
         fix(&mut m.rect);
         if !m.line_h.is_finite() {
@@ -244,7 +301,7 @@ pub fn is_blank(l: &ScreenLayout) -> bool {
         && l.buttons.is_empty()
         && l.labels.is_empty()
         && l.menu.iter().all(|m| m.private)
-        && l.cards.iter().all(|c| c.title_en.trim().is_empty() && c.text_en.trim().is_empty())
+        && l.cards.iter().all(|c| c.title_en.trim().is_empty() && c.text_en.trim().is_empty() && c.head_en.trim().is_empty() && c.rows.is_empty())
         && l.player.as_ref().is_none_or(|p| p.en.is_empty())
 }
 

@@ -1,4 +1,4 @@
-// pages-version: 12
+// pages-version: 13
 // requires-app: 1.0.0
 // Grand Theft Auto VI: the game's own pages the app translates (see src/pagescript.rs for the API).
 // The pages' switch names and descriptions in the app's other interface languages (English and Arabic are with each).
@@ -235,7 +235,7 @@ pages.add({
 // until set itself). An app without `vi.on` reads every part, an app without `anyOf` goes by "pause_menu".
 const PAUSE_PARTS = {
   pause_home: { en: ["First page and Game page", "The menu's first page (Map, Game, Store, Help…), saving and loading, and their questions."], ar: ["الصفحة الأولى وصفحة اللعبة", "الصفحة الأولى من القائمة (الخريطة، اللعبة، المتجر، المساعدة…)، والحفظ والتحميل، وأسئلتها."] },
-  pause_map: { en: ["Map", "The map's buttons and the objective card at the top left."], ar: ["الخريطة", "أزرار الخريطة وبطاقة الهدف أعلى اليسار."] },
+  pause_map: { en: ["Map", "The map's buttons, its index on the left, the box of the place under the cursor and the objective card at the top left."], ar: ["الخريطة", "أزرار الخريطة وفهرسها على اليسار ومربّع المكان تحت المؤشّر وبطاقة الهدف أعلى اليسار."] },
   pause_brief: { en: ["Brief", "The Brief tab: what was said, help texts and objectives so far."], ar: ["الموجز (Brief)", "تبويب الموجز: ما قيل ونصوص المساعدة والأهداف حتى الآن."] },
   pause_jason_lucia: { en: ["Jason & Lucia", "The Jason & Lucia tab."], ar: ["جيسون ولوسيا", "تبويب جيسون ولوسيا."] },
   pause_progress: { en: ["Progress and stats", "The Progress tab's cards and the stats pages."], ar: ["التقدّم والإحصاءات", "بطاقات تبويب التقدّم وصفحات الإحصاءات."] },
@@ -272,6 +272,32 @@ const WORDS = {
     "RESTORE ALL": "استعادة الكل", "RESTORE DEFAULT": "استعادة الافتراضي", "PAUSE PREVIEW": "إيقاف المعاينة",
     "RECENTER": "توسيط", "2D VIEW": "عرض ثنائي الأبعاد", "3D VIEW": "عرض ثلاثي الأبعاد", "ADD MARKER": "إضافة علامة",
     "REMOVE MARKER": "إزالة العلامة", "SET DESTINATION": "تحديد الوجهة", "CLOSE MENU": "إغلاق القائمة", "LEGEND": "دليل الرموز", "YES": "نعم", "NO": "لا",
+    // the map's index: its sections, headings and kinds of place (places' own names go to the translator)
+    "PERSONAL": "شخصي", "STORY": "القصة", "AMMU-NATIONS": "متاجر Ammu-Nation", "STYLE": "الأزياء", "FOOD & DRINK": "الطعام والشراب",
+    "GARAGES": "المرائب", "CASH DEPOSITS": "إيداعات النقود", "OPTIONAL": "اختيارية", "TARGETS": "الأهداف",
+    "DROP-OFFS - VEHICLES": "نقاط التسليم - المركبات", "DROP-OFFS - GOODS": "نقاط التسليم - البضائع", "DROP-OFFS": "نقاط التسليم",
+    "RACING": "السباقات", "SHOOTING RANGES": "ميادين الرماية", "DRONES": "الطائرات المسيّرة", "FITNESS": "اللياقة البدنية",
+    "HUNTING & FISHING": "الصيد البري والبحري", "STUNT SPOTS": "أماكن الحركات الخطرة", "COLLECTORS": "هواة الجمع",
+    "POINTS OF INTEREST": "أماكن مميّزة", "TRANSPORT": "المواصلات",
+    "Garages": "المرائب", "Cash Deposits": "إيداعات النقود", "ATM": "صرّاف آلي", "Jason's Vehicle": "مركبة جيسون",
+    "Fence Stolen Goods": "بيع البضائع المسروقة", "Steal Vehicles for Moses": "سرقة مركبات لموزس", "Dunk's Robbery Tips": "نصائح دَنك للسرقة",
+    "Illegal Operations": "عمليات غير قانونية", "Smash 'n' Grabs": "الكسر والخطف", "Stick Ups": "السطو المسلّح",
+    "Raceways": "حلبات السباق", "Gyms": "الصالات الرياضية", "Fishing Spots": "أماكن الصيد", "Clubs": "النوادي الليلية",
+    "Stunt Jumps": "قفزات الحركات الخطرة", "Pawn Shops": "محلات الرهن", "Basketball Hoops": "سلال كرة السلة",
+    "Underwater Discoveries": "اكتشافات تحت الماء", "Mod Shops": "ورش التعديل", "Pay 'n' Sprays": "ورش الطلاء",
+    "Gas Stations": "محطات الوقود", "Car Washes": "مغاسل السيارات", "Electric Chargers": "شواحن كهربائية", "Bus Stops": "مواقف الحافلات",
+    "Train Stations": "محطات القطار", "Rental Vehicles": "مركبات للإيجار", "Everyday": "يومي", "Premium": "فاخر", "Pawn": "الرهن",
+    "Casual & Street": "كاجوال وملابس الشارع", "Sportswear": "ملابس رياضية", "Formal": "ملابس رسمية", "Souvenir & Swimwear": "هدايا تذكارية وملابس سباحة",
+    "Thrift": "ملابس مستعملة", "Footwear": "الأحذية", "Hair & Beauty": "الشعر والتجميل", "Tattoos": "الوشوم", "Electronics": "الإلكترونيات",
+    "Convenience Stores": "متاجر البقالة", "Fast Food": "الوجبات السريعة", "Cafes & Takeout": "المقاهي والوجبات الجاهزة",
+    "Liquor Stores": "متاجر المشروبات الكحولية", "Bars": "الحانات", "Street Food": "طعام الشارع",
+    // the map's info box: its table's labels and values, its short lines
+    "SECURITY": "الحراسة", "TAKE VALUE": "قيمة الغنيمة", "KEY VALUABLES": "المقتنيات الثمينة", "FEATURES": "المزايا",
+    "SPECIALTY": "التخصّص", "WAIVER": "رسم الإعفاء", "SELL VALUE": "قيمة البيع", "SPECIALIST": "المختصّ", "RATING": "التقييم",
+    "STASH TOTAL": "إجمالي المخبأ", "NARCOTICS": "المخدّرات", "JEWELRY": "المجوهرات", "MARKED BILLS": "أوراق نقدية معلّمة",
+    "VERY LOW": "منخفض جدًا", "VERY HIGH": "مرتفع جدًا", "OFF-ROAD": "الطرق الوعرة", "DIRT BIKES": "دراجات الطرق الوعرة",
+    "MUSCLE": "سيارات العضلات", "Goods to sell": "بضائع للبيع", "Parking Full": "المرآب ممتلئ", "Come back at night": "عُد ليلًا",
+    "Jason only": "جيسون فقط", "Lucia only": "لوسيا فقط", "Gang temporarily disbanded": "العصابة منحلّة مؤقتًا",
     // first page
     "Game": "اللعبة", "Store": "المتجر", "Help": "المساعدة", "Settings": "الإعدادات",
     // the first page during a mission (right), and the Game page
@@ -5474,10 +5500,12 @@ function backIcon(f) {
 
 /** The selected row of a list: a white bar from the left edge (x ≈ 0.017) fading to the right,
  *  ~0.06 of the height. {x, y, w, h} in pixels (w: its white part), or null. */
-function selectionBar(f, rule) {
+function selectionBar(f, rule, starts) {
+  // (`starts`: where the bar may start, fractions of the width; the map's index starts further right)
   const R = pxRect(f, { x: 0, y: 0.12, w: 0.45, h: 0.83 });
   const runs = f.runs(R, rule || P_WHITE);
-  const s0 = f.w * 0.012, s1 = f.w * 0.022, minLen = f.w * 0.05, gap = f.h * 0.035;
+  const [a, b] = starts || [0.012, 0.022];
+  const s0 = f.w * a, s1 = f.w * b, minLen = f.w * 0.05, gap = f.h * 0.035;
   const groups = [];
   let g = null;
   runs.forEach(([s, n], i) => {
@@ -5545,8 +5573,11 @@ function pauseKind(f) {
   // match), the map's column of icons on the left (a cutscene's black band on top has neither)
   const back = backIcon(f);
   const pink = hubBar(f);
-  if (pink && (back || mapStrip(f))) return { kind: "hub", pink };
-  if (!back) return hubBarHidden(f) && mapStrip(f) ? { kind: "hub", pink: null } : null;
+  if (pink && (back || mapStrip(f))) return { kind: "hub", pink, box: infoBox(f) };
+  // the map's index open over its left side (the bar on top hidden under it): its title, its dark panel, the
+  // column of filters beside it
+  if (!pink && mapStrip(f) && mapIndexOpen(f)) return { kind: "mapindex", box: infoBox(f) };
+  if (!back) return hubBarHidden(f) && mapStrip(f) ? { kind: "hub", pink: null, box: infoBox(f) } : null;
   const pill = pillTab(f);
   if (pill) return { kind: "tabs", pill };
   if (homeLogo(f) && (selectionBar(f) || rightListBar(f))) return { kind: "home" };
@@ -6289,10 +6320,7 @@ function readHub(f, k) {
   const part = { MAP: "pause_map", BRIEF: "pause_brief", PROGRESS: "pause_progress", "JASON & LUCIA": "pause_jason_lucia" }[tab];
   if (part && !partOn(part)) return { tabs, menu: [], mapButtons: tab === "MAP" };
   // the map's own pieces (legend, places) come later: only the tabs and buttons for now
-  if (tab === "MAP") {
-    const card = objectiveCard(f);
-    return { tabs, menu: mapPieces(f), mapButtons: true, cards: card ? [card] : [] };
-  }
+  if (tab === "MAP") return readMap(f, k, tabs, []);
   if (tab === "PROGRESS") return { tabs, menu: progressCards(f) };
   const menu = textBoxes(f, contentSegments(f, pxRect(f, { x: 0.012, y: 0.11, w: 0.976, h: 0.815 })), split(f));
   // (a level read without its numbers, "LVL" of "LVL 1/4": its line again, closer, up to its icon)
@@ -6312,27 +6340,83 @@ function readHub(f, k) {
   return { tabs, menu };
 }
 
-/** The map: only the column of its buttons on the right ("RECENTER ⓛ", "2D VIEW ⓡ" …: one under another, so each
- *  translation goes to the left of its word, on its line, not above it). The objective's panel and the current
- *  objective stay as the game shows them. */
+/** The map's buttons, the column bottom right ("RECENTER ⓛ", "2D VIEW ⓡ" … "EXIT ◎" or "CLOSE MENU ◎"): one under
+ *  another, so each translation goes just left of its word, on its line, with the game's icon (as a failed
+ *  mission's buttons). A button OCR misses in the column's read (the greyed-out "ADD MARKER", drawn in outline) is
+ *  read again on its own line, found by its icon. */
 function mapPieces(f) {
-  const out = [];
-  for (const s of segments(f, pxRect(f, { x: 0.82, y: 0.74, w: 0.165, h: 0.245 }), { scale: 2 }, 1.2)) {
+  const zone = pxRect(f, { x: 0.82, y: 0.74, w: 0.165, h: 0.245 });
+  const found = [];
+  const take = (s) => {
     const ws = s.words.filter((w) => /\p{L}{2}|^\d\p{L}$/u.test(w.text));
-    if (!ws.length) continue;
-    const hit = known(ws.map((w) => w.text).join(" "), BUTTON_NAMES);
-    const ar = hit && !hit.cut && ownWord(hit.en, true);
-    if (!ar) continue;
-    const x0 = Math.min(...ws.map((w) => w.x)), y0 = Math.min(...ws.map((w) => w.y)), y1 = Math.max(...ws.map((w) => w.y + w.h));
-    const ink = f.pixels({ x: x0, y: y0, w: Math.max(...ws.map((w) => w.x + w.w)) - x0, h: y1 - y0 }, { step: 1, bright: [95, 255], spread: [0, 28], median: true });
-    const fg = ink.median ? hex(ink.median) : "#ffffff";
-    const h = y1 - y0, w = Math.round(f.w * 0.14), gap = Math.round(h * 0.8);
-    out.push({
-      en: hit.en, ar, icons: [], fixed: true, lines: 1, mid: (y0 + y1) / 2,
-      rect: f.box(x0 - gap - w, y0 - Math.round(h * 0.4), w, Math.round(h * 1.8)),
-      bg: "transparent", fg, line_h: FONT.button, size: 1.2, font: textFont(), weight: 700, align: "right", wrap: "no",
-      shadow: true, item: false, right: true, missed: 0,
-    });
+    if (!ws.length) return false;
+    const read = ws.map((w) => w.text).join(" ");
+    // (the small "2D VIEW" misread in a small picture, "2D VIEVV": its view by its number)
+    const view = /^([23])\s*D/i.exec(read);
+    const hit = known(read, BUTTON_NAMES) || (view ? { en: view[1] + "D VIEW" } : null);
+    if (!hit || hit.cut) return false;
+    const x0 = Math.min(...ws.map((w) => w.x)), x1 = Math.max(...ws.map((w) => w.x + w.w));
+    const y0 = Math.min(...ws.map((w) => w.y)), y1 = Math.max(...ws.map((w) => w.y + w.h));
+    if (found.some((b) => b.en === hit.en || Math.abs((b.y0 + b.y1) / 2 - (y0 + y1) / 2) < (y1 - y0) * 0.6)) return false;
+    found.push({ en: hit.en, x0, x1, y0, y1 });
+    return true;
+  };
+  for (const opts of [{ scale: 2 }, { scale: 2, boost: 2 }]) for (const s of segments(f, zone, opts, 1.2)) take(s);
+  // the column's lines are evenly spaced: a line between or after the ones read (a greyed-out "ADD MARKER" drawn in
+  // outline, an "EXIT" over a bright part of the map) is read again on its own, closer
+  found.sort((a, b) => a.y0 - b.y0);
+  if (found.length >= 2) {
+    const mids = found.map((b) => (b.y0 + b.y1) / 2), hs = found.map((b) => b.y1 - b.y0).sort((a, b) => a - b);
+    const h = hs[Math.floor(hs.length / 2)];
+    const steps = mids.slice(1).map((m, i) => m - mids[i]).filter((d) => d > h * 1.5);
+    const pitch = steps.length ? Math.min(...steps) : 0;
+    if (pitch > 0) {
+      const right = Math.max(...found.map((b) => b.x1));
+      for (let m = mids[0] + pitch; m < zone.y + zone.h; m += pitch) {
+        if (found.some((b) => Math.abs((b.y0 + b.y1) / 2 - m) < pitch * 0.4)) continue;
+        const r = { x: zone.x, y: Math.round(m - h * 1.1), w: right - zone.x + 4, h: Math.round(h * 2.2) };
+        for (const opts of [{ scale: 3 }, { scale: 3, boost: 3 }, { scale: 4, boost: 2 }]) if (segments(f, r, opts, 1.2).some(take)) break;
+      }
+    }
+  }
+  found.sort((a, b) => a.y0 - b.y0);
+  const out = [];
+  const iconAt = [];
+  for (const p of found) {
+    const word = ownWord(p.en, true);
+    const t = vi.buttonWord(p.en);
+    const ar = word || (t && t[1]) || "";
+    const h = p.y1 - p.y0;
+    const ink = f.pixels({ x: p.x0, y: p.y0, w: p.x1 - p.x0, h }, { step: 1, bright: [95, 255], spread: [0, 28], median: true });
+    const b = { en: p.en, ar, fg: ink.median ? hex(ink.median) : "#ffffff", text_rect: f.box(p.x0, p.y0, p.x1 - p.x0, h), beside: true };
+    // its icon: the first shape just right of the word
+    const ic = f.blobs({ x: p.x1 + 2, y: Math.max(p.y0 - h, 0), w: Math.round(h * 3), h: h * 3 }, { gap: 2, bright: [90, 255], spread: [0, 40] })
+      .find((o) => o.h >= h * 0.8 && o.w >= h * 0.6 && o.w <= h * 2.8 && o.h <= h * 2);
+    if (ic) iconAt.push(ic);
+    b.ic = ic;
+    out.push(b);
+  }
+  // (an icon not told from the bright map behind it: where the others are, the column's icons one under another)
+  const icS = iconAt.length ? iconAt.map((o) => o.h).sort((a, b) => a - b)[Math.floor(iconAt.length / 2)] : 0;
+  const icX = iconAt.length ? iconAt.map((o) => o.x + o.w / 2).sort((a, b) => a - b)[Math.floor(iconAt.length / 2)] : 0;
+  for (const b of out) {
+    let ic = b.ic;
+    delete b.ic;
+    let guessed = false;
+    if (!ic) {
+      // (none found at all: where the game draws them, just right of the words, a little taller than the letters)
+      const th = b.text_rect.h * f.h, mid = (b.text_rect.y + b.text_rect.h / 2) * f.h;
+      const sz = icS || Math.round(th * 1.45), cx = icS ? icX : (b.text_rect.x + b.text_rect.w) * f.w + th * 0.45 + sz / 2;
+      ic = { x: Math.round(cx - sz / 2), y: Math.round(mid - sz / 2), w: sz, h: sz };
+      guessed = true;
+    }
+    if (ic) {
+      b.icon_rect = f.box(ic.x, ic.y, ic.w, ic.h);
+      const name = typeof f.gameIconAt === "function" && f.gameIconAt(ic);
+      // (a greyed-out icon, or one in a place guessed: the game's picture there as it is)
+      const icon = (name && vi.gameIcon(name)) || f.icon(ic, guessed ? 0 : 140) || f.icon(ic, 0);
+      if (icon) b.icon = icon;
+    }
   }
   return out;
 }
@@ -6381,6 +6465,262 @@ function objectiveCard(f) {
     text_en: body.map(words).join(" "),
     text_h: (hs.length ? hs[Math.floor(hs.length / 2)] : title.h) / f.h,
   };
+}
+
+// ---- the map's info box and index
+
+/** The box the map shows for the place under the cursor (a mission, a shop, a gang's base …): a dark see-through
+ *  box, darker on its left, with straight edges, sometimes under a coloured line (a mission's pink, a gang's gold).
+ *  Told by its rows: between its lines of text each row is one dark run from its left edge to its right one, the
+ *  same edges row after row (the map's fog, dark too, has no straight edges). {x0, y0, x1, y1, line} in pixels
+ *  (line: {y, h, colour} or null), or null. Pixels only: cheap enough for `present`. */
+function infoBox(f) {
+  const R = pxRect(f, { x: 0.3, y: 0.085, w: 0.69, h: 0.84 });
+  // (over the fog, as dark as the box, the box is told by its colour: bluish grey, the fog a deeper blue)
+  for (const rule of [{ bright: [0, 100] }, { bright: [0, 100], rb: [-24, 4] }]) {
+    const rows = [];
+    f.runs(R, rule).forEach(([s, n], i) => { if (n >= f.w * 0.12 && n <= f.w * 0.5) rows.push({ y: R.y + i, s, e: s + n }); });
+    if (rows.length < f.h * 0.02) continue;
+    const mode = (vals) => {
+      const count = new Map();
+      for (const v of vals) for (let d = -2; d <= 2; d++) count.set(v + d, (count.get(v + d) || 0) + 1);
+      let best = null;
+      for (const [v, n] of count) if (!best || n > best[1]) best = [v, n];
+      return best ? best[0] : 0;
+    };
+    const x0 = mode(rows.map((r) => r.s)), x1 = mode(rows.map((r) => r.e));
+    if (x1 - x0 < f.w * 0.12) continue;
+    // its rows: both edges where they are (n counts those); one of them where it is and the run going on past the
+    // other (dark fog against that side) still marks the box's extent
+    const both = (r) => Math.abs(r.s - x0) <= 3 && Math.abs(r.e - x1) <= 3;
+    const one = (r) => (Math.abs(r.s - x0) <= 3 && r.e >= x1 - 3) || (Math.abs(r.e - x1) <= 3 && r.s <= x0 + 3);
+    const all = f.runs(R, rule).map(([s, n], i) => ({ y: R.y + i, s, e: s + n })).filter((r) => both(r) || one(r));
+    // together (its lines of text between them): the biggest group
+    const groups = [];
+    for (const r of all) {
+      const g = groups[groups.length - 1];
+      const k = both(r) ? 1 : 0;
+      if (g && r.y - g.y1 <= f.h * 0.06) Object.assign(g, { y1: r.y, n: g.n + k });
+      else groups.push({ y0: r.y, y1: r.y, n: k });
+    }
+    const g = groups.sort((a, b) => b.n - a.n)[0];
+    if (!g || g.n < f.h * 0.02 || g.y1 - g.y0 < f.h * 0.05) continue;
+    let y0 = g.y0;
+    // the coloured line along its top (a mission's pink, a gang's gold): a few rows of one colour across it, there or
+    // just over it (the map's water, as colourful, has no such thin band)
+    const band = Math.ceil(f.h * 0.012), colourful = { bright: [120, 255], spread: [60, 255] };
+    const by = Math.max(y0 - band, 0);
+    const prof = f.profile({ x: x0, y: by, w: x1 - x0, h: 2 * band }, Object.assign({ axis: "rows", step: 1 }, colourful));
+    const full = (x1 - x0) * 0.9;
+    let line = null;
+    for (let i = 0; i < prof.length; i++) {
+      if (prof[i] < full) continue;
+      let j = i;
+      while (j + 1 < prof.length && prof[j + 1] >= full) j++;
+      // (thin, with no colour right over it)
+      if (j - i + 1 <= f.h * 0.006 && i > 0 && prof[i - 1] < full * 0.5) {
+        const m = f.pixels({ x: x0, y: by + i, w: x1 - x0, h: j - i + 1 }, Object.assign({ step: 1, median: true }, colourful));
+        if (m.median) line = { y: by + i, h: j - i + 1, colour: hex(m.median) };
+        break;
+      }
+      i = j;
+    }
+    if (line) y0 = Math.min(y0, line.y);
+    return { x0, y0, x1, y1: g.y1 + 1, line };
+  }
+  return null;
+}
+
+// the box's look, measured on the game's: its colour, solid enough on the left to hide the map, see-through on the
+// right; the band behind a heading over the name darker
+const BOX_BG = "linear-gradient(90deg, rgba(18, 17, 32, 0.96) 0%, rgba(18, 17, 32, 0.86) 40%, rgba(18, 17, 32, 0.7) 100%)";
+const BOX_HEAD_BG = "rgba(18, 17, 32, 0.97)";
+// the labels of the box's table the script knows (a one-piece line of capitals is one of them only if known)
+const BOX_LABELS = ["FEATURES", "KEY VALUABLES", "SECURITY", "TAKE VALUE", "INVENTORY", "SPECIALTY", "STYLE", "WAIVER",
+  "SELL VALUE", "SPECIALIST", "RATING", "STASH TOTAL"];
+
+/** The map's info box read: its heading (a mission's giver, "DUNK'S ROBBERY TIPS"), its name (the picture beside
+ *  it), the short lines under the name with their icons ("$ Goods to sell", "🕒 Come back at night"), its sentence,
+ *  and its table ("SECURITY … LOW", "TAKE VALUE … $1,800 - $2,200"). Translated by the app; drawn as a twin of the
+ *  game's box just under it (`cards`, `twin`). */
+function infoCard(f, box) {
+  const top = box.line ? box.line.y + box.line.h : box.y0;
+  const inner = { x: box.x0 + 4, y: top + 2, w: box.x1 - box.x0 - 8, h: box.y1 - top - 4 };
+  // the lines, a label and its value apart (cut at a wide gap)
+  const segs = segments(f, inner, { scale: 2 }, 3).filter((s) => s.words.some((w) => /\p{L}{2}|\d/u.test(w.text)));
+  if (!segs.length) return null;
+  const lines = [];
+  for (const s of segs) {
+    const l = lines.find((l) => Math.min(l.y1, s.y1) - Math.max(l.y0, s.y0) >= Math.min(l.y1 - l.y0, s.h) * 0.5);
+    if (l) Object.assign(l, { y0: Math.min(l.y0, s.y0), y1: Math.max(l.y1, s.y1) }).segs.push(s);
+    else lines.push({ y0: s.y0, y1: s.y1, segs: [s] });
+  }
+  lines.sort((a, b) => a.y0 - b.y0);
+  for (const l of lines) l.segs.sort((a, b) => a.x0 - b.x0);
+  const words = (s) => s.words.map((w) => w.text).join(" ").replace(/\s+/g, " ").trim();
+  const letters = (s) => s.words.filter((w) => /\p{L}{2}/u.test(w.text));
+  // a line's letter height: of its words (a lone icon read as "J" or "$" doesn't count)
+  const capH = (l) => {
+    const hs = l.segs.flatMap((s) => letters(s).map((w) => w.h)).sort((a, b) => a - b);
+    return hs.length ? hs[Math.floor(hs.length / 2)] : 0;
+  };
+  // the text's left edge (the box's padding)
+  const left = Math.min(...lines.map((l) => l.segs[0].x0));
+  const pad = left - box.x0;
+  const W = box.x1 - box.x0;
+  // the name: the line with the biggest letters among the first ones (a heading over it is smaller)
+  let ti = 0;
+  lines.slice(0, 3).forEach((l, i) => { if (capH(l) > capH(lines[ti]) * 1.12) ti = i; });
+  const title = lines[ti];
+  const out = {
+    rect: f.box(box.x0, box.y0, W, box.y1 - box.y0),
+    bg: BOX_BG, head_bg: BOX_HEAD_BG, twin: true,
+    border: box.line ? box.line.colour : "", border_h: box.line ? box.line.h / f.h : 0,
+    head_en: "", head_h: 0, sub: [], rows: [], rows_h: 0, pic: "", title_en: "", title_h: 0, text_en: "", text_h: 0,
+  };
+  if (ti > 0) {
+    const head = lines.slice(0, ti);
+    out.head_en = head.map((l) => l.segs.map(words).join(" ")).join(" ");
+    out.head_h = capH(head[0]) / f.h;
+  }
+  // the name, and the picture left of it (a character's face, a gang's badge)
+  const tw2 = title.segs.flatMap(letters);
+  if (!tw2.length) return null;
+  const tx = Math.min(...tw2.map((w) => w.x));
+  // (from its first word of letters: "A" of "CATCH A BIGGER FISH" too, the picture before it read as a letter not)
+  const tw = title.segs.flatMap((s) => s.words).filter((w) => w.x >= tx && /\p{L}|\d/u.test(w.text));
+  out.title_en = tw.map((w) => w.text).join(" ");
+  out.title_h = capH(title) / f.h;
+  if (tx - left > capH(title) * 1.2) {
+    const s = Math.round(capH(title) * 1.75), py = Math.round((title.y0 + title.y1) / 2 - s / 2);
+    out.pic = f.icon({ x: left, y: py, w: Math.min(s, tx - left - 4), h: s }, 0) || "";
+  }
+  // after the name: short lines that start with an icon, the sentence, the table
+  const body = [];
+  for (const l of lines.slice(ti + 1)) {
+    const lw = l.segs.flatMap(letters);
+    const first = l.segs[0], last = l.segs[l.segs.length - 1];
+    const h = capH(l) || first.h;
+    const lx = lw.length ? Math.min(...lw.map((w) => w.x)) : first.x0;
+    const iconBefore = lx - left > h * 0.9;
+    // a row of the table: a label in small capitals on the left, its value against the right edge (or only icons
+    // there, "FEATURES 👕🔫"); the stash's rows have an icon before their label
+    const labelWords = first.words.filter((w) => /\p{L}/u.test(w.text) && w.x >= lx - 2);
+    const label = labelWords.map((w) => w.text).join(" ");
+    // (its value on the right side, an icon after it at times: "MUSCLE 🚗")
+    const atRight = l.segs.length >= 2 && last.x0 > box.x0 + W * 0.45;
+    if (label && isCaps(label) && !/\p{Ll}/u.test(label) && (!iconBefore || body.length || out.rows.length)) {
+      const valued = l.segs.length >= 2 && atRight;
+      const iconsOnly = l.segs.length === 1 && BOX_LABELS.includes(label.toUpperCase());
+      if (valued || iconsOnly) {
+        const value = valued ? l.segs.slice(1) : [];
+        const vtext = value.map(words).join(" ");
+        const row = { en: label, ar: ownWord(label, true), value_en: vtext, value_ar: "", value_fg: "#ffffff", value_pic: "" };
+        const vx0 = value.length ? value[0].x0 : first.x1 + Math.round(h);
+        if (vtext && /\p{L}{2}|\d/u.test(vtext)) {
+          // (money and numbers as they are, a word translated, "LOW"; in its colour: a level's green, orange, red)
+          const back = f.median({ x: vx0, y: l.y0 - 2, w: last.x1 - vx0, h: l.y1 - l.y0 + 4 }, { step_x: 2, step_y: 1, exclude: [vx0, l.y0, last.x1, l.y1] });
+          const fg = back && f.contrast({ x: vx0, y: l.y0, w: last.x1 - vx0, h: l.y1 - l.y0 }, back, 0.12);
+          if (fg) row.value_fg = hex(fg);
+          row.value_ar = valueWord(vtext);
+        } else {
+          // only icons ("👕🔫", "? ? ?"): the game's picture of them, cut out
+          const ic = f.pixels({ x: vx0, y: l.y0 - 3, w: box.x1 - Math.round(pad * 0.5) - vx0, h: l.y1 - l.y0 + 6 }, { step: 1, bright: [150, 255] });
+          if (ic.box) row.value_pic = f.icon(ic.box, 0) || "";
+          row.value_en = "";
+        }
+        out.rows.push(row);
+        out.rows_h = out.rows_h || h / f.h;
+        continue;
+      }
+    }
+    // a short line with an icon before it ("$ Goods to sell", "J Jason only", "🕒 Come back at night")
+    if (!out.rows.length && !body.length && iconBefore && last.x1 - left < W * 0.75) {
+      const en = l.segs.flatMap((s) => s.words).filter((w) => w.x > left + h * 0.9 && /\p{L}|\d|^[-–]$/u.test(w.text)).map((w) => w.text).join(" ");
+      if (!en) continue;
+      const iw = Math.max(lx - left - Math.round(h * 0.3), 0);
+      const icon = iw >= h * 0.5 ? f.icon({ x: left, y: l.y0 - 2, w: iw, h: l.y1 - l.y0 + 4 }, 0) || "" : "";
+      out.sub.push({ en, ar: ownWord(en, true), icon, h: h / f.h, caps: isCaps(en) });
+      continue;
+    }
+    if (lw.length) body.push(l);
+  }
+  if (body.length) {
+    out.text_en = body.map((l) => l.segs.map(words).join(" ")).join(" ").replace(/\s+/g, " ").trim();
+    out.text_h = capH(body[Math.floor(body.length / 2)]) / f.h;
+  }
+  const ar = ownWord(out.title_en, true);
+  if (ar) out.title_ar = ar;
+  if (out.head_en) {
+    const h = ownWord(out.head_en, true);
+    if (h) out.head_ar = h;
+  }
+  return out;
+}
+
+/** A value in the box's table: its words in the player's language where the script has them ("LOW", "OFF-ROAD"),
+ *  numbers and money kept ("$175,540 LOW"); "" for the app's translator. */
+function valueWord(en) {
+  const t = String(en).trim();
+  if (!/\p{L}{2}/u.test(t)) return t;
+  const whole = ownWord(t, true);
+  if (whole) return whole;
+  // money or a number, then a word
+  const m = /^([$€£]?[\d.,]+(?:\s*[-–]\s*[$€£]?[\d.,]+)?)\s+(.+)$/u.exec(t);
+  if (m) {
+    const w = ownWord(m[2], true);
+    if (w) return m[1] + " " + w;
+  }
+  return "";
+}
+
+/** The map's index, open over the map's left side: its title ("PERSONAL", "ROBBERIES" …) over the list of places
+ *  and headings, beside the column of filters; the map, its info box and its buttons still to the right. */
+function mapIndexOpen(f) {
+  // the panel: dark from the filters' column to past the list (the map, bright, beyond it)
+  const r = pxRect(f, { x: 0.06, y: 0.1, w: 0.2, h: 0.8 });
+  const panel = f.pixels(r, { step: 6, bright: [0, 80] });
+  const all = Math.floor(r.w / 6) * Math.floor(r.h / 6);
+  return panel.count > all * 0.6 && plainTitle(f);
+}
+
+/** The index: its title and its list (the selected row on its white bar); its words where the script has them
+ *  (headings and kinds of place), names to the translator. */
+function readMapIndex(f) {
+  let title = [];
+  for (const scale of [2, 3, 1]) {
+    title = textBoxes(f, segments(f, pxRect(f, { x: 0.006, y: 0.01, w: 0.27, h: 0.065 }), { scale }), 0).filter((b) => /\p{L}{2}/u.test(b.en));
+    if (title.length) break;
+  }
+  title.forEach((b) => Object.assign(b, { item: false, heading: true, weight: 700 }));
+  const list = pxRect(f, { x: 0.05, y: 0.085, w: 0.23, h: 0.82 });
+  let segs = segments(f, list, { scale: 1 });
+  // the selected row's dark letters on its white bar, read on their own when the whole read missed them
+  const bar = selectionBar(f, null, [0.045, 0.06]);
+  if (bar) {
+    const r = { x: bar.x, y: bar.y, w: Math.min(Math.round(f.w * 0.22), bar.w * 2), h: bar.h };
+    if (!segs.some((s) => overlaps({ x: s.x0, y: s.y0, w: s.x1 - s.x0, h: s.y1 - s.y0 }, r))) segs = segs.concat(segments(f, r, { scale: 2, isolate: 8 }));
+  }
+  const menu = textBoxes(f, segs, f.w).filter((b) => /\p{L}{2}/u.test(b.en));
+  for (const m of [...title, ...menu]) {
+    const ar = ownWord(m.en, true);
+    if (ar) Object.assign(m, { ar, fixed: true });
+  }
+  for (const m of menu) {
+    if (bar && Math.abs((m.mid || 0) - (bar.y + bar.h / 2)) < bar.h * 0.35) m.rect = Object.assign({}, m.rect, { y: bar.y / f.h, h: bar.h / f.h });
+  }
+  return [...title, ...menu];
+}
+
+/** The map: its objective card top left, the info box of the place under the cursor, and its buttons; with the
+ *  index open, the index too. */
+function readMap(f, k, tabs, menu) {
+  const cards = [];
+  const card = objectiveCard(f);
+  if (card) cards.push(card);
+  const box = k.box && infoCard(f, k.box);
+  if (box) cards.push(box);
+  return { tabs, menu, mapButtons: true, buttons: mapPieces(f), cards };
 }
 
 /** Progress: a row of cards, each named along its foot ("STATS", "VEHICLES" …): each name where it stands, in
@@ -6529,7 +6869,9 @@ pages.add({
     const tabsOn = partOn("pause_tabs");
     // (the first page, the Game page and their questions: one part, told by the page's look alone)
     const r = own && !partOn("pause_home") ? { tabs: [], menu: [] }
-      : k.kind === "home" ? readHome(f) : k.kind === "plain" ? readPlain(f) : k.kind === "dialog" ? readDialog(f, k) : k.kind === "tabs" ? readTabsPage(f, k) : readHub(f, k);
+      : k.kind === "home" ? readHome(f) : k.kind === "plain" ? readPlain(f) : k.kind === "dialog" ? readDialog(f, k) : k.kind === "tabs" ? readTabsPage(f, k)
+      : k.kind === "mapindex" ? (partOn("pause_map") ? readMap(f, k, [], readMapIndex(f)) : { tabs: [], menu: [], mapButtons: true })
+      : readHub(f, k);
     if (!r) return null;
     if (!own && r.tabs.length < 2 && !r.mapButtons) return null;
     // the list's selection still sliding to its row: read when it has settled (colours and places taken
@@ -6546,7 +6888,7 @@ pages.add({
     }
     for (const m of r.menu) delete m.mid;
     // (the map's buttons are a column, its "EXIT" the last of them: read with the map's pieces)
-    const buttons = r.mapButtons || !tabsOn ? [] : readButtons(f);
+    const buttons = r.mapButtons ? r.buttons || [] : !tabsOn ? [] : readButtons(f);
     const labels = tabsOn ? r.tabs : [];
     this.off = !r.menu.length && !(r.cards || []).length && !labels.length && !buttons.length ? { key, at: Date.now() } : null;
     if (this.off) return null;
@@ -6562,8 +6904,9 @@ pages.add({
       follow: "menu",
       // what the app watches for changes: the menu itself (on the first page the blurred game beside it can
       // move, and a moving picture there made a state of the menu seen before never match again)
-      content_rect: k.kind === "home" ? { x: 0.01, y: 0.09, w: 0.27, h: 0.55 } : { x: 0, y: 0.1, w: 1, h: 0.83 },
-      buttons_rect: { x: 0.45, y: 0.935, w: 0.535, h: 0.05 },
+      content_rect: k.kind === "home" ? { x: 0.01, y: 0.09, w: 0.27, h: 0.55 } : k.kind === "mapindex" ? { x: 0, y: 0, w: 1, h: 0.93 } : { x: 0, y: 0.1, w: 1, h: 0.83 },
+      // (the map's buttons: a column bottom right)
+      buttons_rect: r.mapButtons ? { x: 0.82, y: 0.74, w: 0.165, h: 0.245 } : { x: 0.45, y: 0.935, w: 0.535, h: 0.05 },
     };
   },
 
