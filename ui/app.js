@@ -2816,7 +2816,10 @@ const CONTENT_TEXT = {
   phone_text: ["WhatUp chats", "The phone's chats, translated on a second phone beside it."],
   phone_bubble: ["Message bubble", "A new message's bubble at the bottom right, translated above it."],
   pause_home: ["First page and Game page", "The menu's first page (Map, Game, Store, Help…), saving and loading, and their questions."],
-  pause_map: ["Map", "The map's buttons and the objective card at the top left."],
+  pause_map: ["Map", "The objective card at the top left of the map."],
+  pause_map_index: ["Map index", "The map's list on the left: Personal, Story, Robberies and the rest."],
+  pause_map_box: ["Map place box", "The box of the place or mission under the cursor, drawn again under it."],
+  pause_map_buttons: ["Map buttons", "The map's buttons at the bottom right: Recenter, 2D view, Add marker and the rest."],
   pause_brief: ["Brief", "The Brief tab: what was said, help texts and objectives so far."],
   pause_jason_lucia: ["Jason & Lucia", "The Jason & Lucia tab."],
   pause_progress: ["Progress and stats", "The Progress tab's cards and the stats pages."],
@@ -2852,12 +2855,13 @@ async function renderPages() {
   o.more = o.more || {};
   // a switch as the profile has it: as set; else, one split from an older switch (`inherits`), as that one is
   // set; else the script's default (as the core's `pagescript::option_on`)
-  const isOn = (opt) => {
+  // (down the chain, a few at most: the map's index from the map, the map from the pause menu)
+  const isOn = (opt, depth = 0) => {
     if (opt.id in o.more) return o.more[opt.id];
-    if (opt.inherits && opt.inherits !== opt.id) {
-      if (opt.inherits in o.more) return o.more[opt.inherits];
+    if (opt.inherits && opt.inherits !== opt.id && depth < 4) {
       const old = script.options.find((x) => x.id === opt.inherits);
-      if (old) return old.on;
+      if (old) return isOn(old, depth + 1);
+      if (opt.inherits in o.more) return o.more[opt.inherits];
     }
     return opt.on;
   };

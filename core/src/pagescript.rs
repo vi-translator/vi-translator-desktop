@@ -612,17 +612,24 @@ impl Pages {
 /// A switch as the profile has it (`more`): as the player set it; else, for one that `inherits` an older
 /// switch, as that one is set; else the script's default (on for one the script doesn't declare).
 pub fn option_on(options: &[OptionInfo], more: &std::collections::BTreeMap<String, bool>, id: &str) -> bool {
-    if let Some(&on) = more.get(id) {
-        return on;
+    // (down the chain of older switches, a few at most: the map's index from the map, the map from the pause menu)
+    let mut id = id;
+    for _ in 0..4 {
+        if let Some(&on) = more.get(id) {
+            return on;
+        }
+        match options.iter().find(|o| o.id == id) {
+            Some(o) if !o.inherits.is_empty() && o.inherits != o.id => match options.iter().find(|x| x.id == o.inherits) {
+                // (an older switch the script declares: as it is set, or as its own older one is)
+                Some(_) => id = &o.inherits,
+                // (one it no longer declares: as set, else this one's default)
+                None => return more.get(&o.inherits).copied().unwrap_or(o.on),
+            },
+            Some(o) => return o.on,
+            None => return true,
+        }
     }
-    match options.iter().find(|o| o.id == id) {
-        Some(o) if !o.inherits.is_empty() && o.inherits != o.id => more
-            .get(&o.inherits)
-            .copied()
-            .unwrap_or_else(|| options.iter().find(|x| x.id == o.inherits).map_or(o.on, |x| x.on)),
-        Some(o) => o.on,
-        None => true,
-    }
+    options.iter().find(|o| o.id == id).map_or(true, |o| o.on)
 }
 
 /// The JavaScript side of the helpers and the page registry.
@@ -1409,8 +1416,19 @@ mod built_in_tests {
         assert!(p.options.iter().any(|o| o.id == "wasted" && o.on));
         assert!(p.list.iter().any(|i| i.id == "gta6_pause"));
         // (the pause menu: a switch for each of its parts, each from the old "pause_menu")
-        assert!(p.options.iter().filter(|o| o.id.starts_with("pause_")).all(|o| o.on && o.inherits == "pause_menu"));
+        assert!(p.options.iter().filter(|o| o.id.starts_with("pause_")).all(|o| o.on && (o.inherits == "pause_menu" || (o.id.starts_with("pause_map_") && o.inherits == "pause_map"))));
         assert_eq!(p.options.iter().filter(|o| o.inherits == "pause_menu").count(), 8);
+        // (the map's parts, each from the map's switch)
+        assert_eq!(p.options.iter().filter(|o| o.inherits == "pause_map").count(), 3);
+        // down the chain: the map's index as the map is set, the map as the old pause menu switch was, until each is set
+        let mut o = crate::config::ProfileOpts::default();
+        assert!(p.switch_on(&o, "pause_map_index"));
+        o.more.insert("pause_menu".into(), false);
+        assert!(!p.switch_on(&o, "pause_map") && !p.switch_on(&o, "pause_map_index"), "from the pause menu, through the map");
+        o.more.insert("pause_map".into(), true);
+        assert!(p.switch_on(&o, "pause_map_index") && p.switch_on(&o, "pause_map_buttons"), "from the map");
+        o.more.insert("pause_map_index".into(), false);
+        assert!(!p.switch_on(&o, "pause_map_index") && p.switch_on(&o, "pause_map_box"), "each its own once set");
     }
 
     /// A frame the game saved (`tests/frames`, cut down to 720p: the size of the phones' PS5 stream).
@@ -1843,7 +1861,7 @@ mod content_tests {
         let ids: Vec<&str> = groups.iter().map(|g| g["id"].as_str().unwrap()).collect();
         assert_eq!(ids, [
             "phone_text", "phone_bubble",
-            "pause_home", "pause_map", "pause_brief", "pause_jason_lucia", "pause_progress", "pause_help", "pause_settings", "pause_tabs",
+            "pause_home", "pause_map", "pause_map_index", "pause_map_box", "pause_map_buttons", "pause_brief", "pause_jason_lucia", "pause_progress", "pause_help", "pause_settings", "pause_tabs",
             "help", "instructions", "game_notices",
             "wasted", "mission_failed", "weapon_wheel",
         ]);
@@ -1857,7 +1875,7 @@ mod content_tests {
         }
         // the pause menu looked for while any of its parts is on
         let pause = v["pages"].as_array().unwrap().iter().find(|p| p["id"] == "gta6_pause").unwrap();
-        assert_eq!(pause["any_of"].as_array().unwrap().len(), 8);
+        assert_eq!(pause["any_of"].as_array().unwrap().len(), 11, "its 8 parts and the map's 3");
         // another game has none
         assert!(super::page_options("rdr2", &dir)["groups"].as_array().unwrap().is_empty());
     }

@@ -235,7 +235,7 @@ pages.add({
 // until set itself). An app without `vi.on` reads every part, an app without `anyOf` goes by "pause_menu".
 const PAUSE_PARTS = {
   pause_home: { en: ["First page and Game page", "The menu's first page (Map, Game, Store, Help…), saving and loading, and their questions."], ar: ["الصفحة الأولى وصفحة اللعبة", "الصفحة الأولى من القائمة (الخريطة، اللعبة، المتجر، المساعدة…)، والحفظ والتحميل، وأسئلتها."] },
-  pause_map: { en: ["Map", "The map's buttons, its index on the left, the box of the place under the cursor and the objective card at the top left."], ar: ["الخريطة", "أزرار الخريطة وفهرسها على اليسار ومربّع المكان تحت المؤشّر وبطاقة الهدف أعلى اليسار."] },
+  pause_map: { en: ["Map", "The objective card at the top left of the map."], ar: ["الخريطة", "بطاقة الهدف أعلى يسار الخريطة."] },
   pause_brief: { en: ["Brief", "The Brief tab: what was said, help texts and objectives so far."], ar: ["الموجز (Brief)", "تبويب الموجز: ما قيل ونصوص المساعدة والأهداف حتى الآن."] },
   pause_jason_lucia: { en: ["Jason & Lucia", "The Jason & Lucia tab."], ar: ["جيسون ولوسيا", "تبويب جيسون ولوسيا."] },
   pause_progress: { en: ["Progress and stats", "The Progress tab's cards and the stats pages."], ar: ["التقدّم والإحصاءات", "بطاقات تبويب التقدّم وصفحات الإحصاءات."] },
@@ -243,6 +243,22 @@ const PAUSE_PARTS = {
   pause_settings: { en: ["Settings pages", "The settings: controls, display, audio and the rest."], ar: ["صفحات الإعدادات", "الإعدادات: التحكم والعرض والصوت وغيرها."] },
   pause_tabs: { en: ["Tab names and buttons", "The row of tabs at the top and the buttons at the bottom right of every page."], ar: ["أسماء التبويبات والأزرار", "صف التبويبات في الأعلى والأزرار أسفل اليمين في كل صفحة."] },
 };
+// The map's own parts, each with its switch too (from "pause_map": each as it was set, until set itself).
+const MAP_PARTS = {
+  pause_map_index: { en: ["Map index", "The map's list on the left: Personal, Story, Robberies and the rest."], ar: ["فهرس الخريطة", "قائمة الخريطة على اليسار: شخصي والقصة والسرقات وغيرها."] },
+  pause_map_box: { en: ["Map place box", "The box of the place or mission under the cursor, drawn again under it."], ar: ["مربّع المكان في الخريطة", "مربّع المكان أو المهمة تحت المؤشّر، مرسومًا مرة أخرى تحته."] },
+  pause_map_buttons: { en: ["Map buttons", "The map's buttons at the bottom right: Recenter, 2D view, Add marker and the rest."], ar: ["أزرار الخريطة", "أزرار الخريطة أسفل اليمين: توسيط وعرض ثنائي الأبعاد وإضافة علامة وغيرها."] },
+};
+for (const [id, t] of Object.entries(MAP_PARTS)) {
+  const other = PAGE_NAMES[id] || { name: {}, about: {} };
+  pages.option({
+    id,
+    name: Object.assign({}, other.name, { en: t.en[0], ar: t.ar[0] }),
+    about: Object.assign({}, other.about, { en: t.en[1], ar: t.ar[1] }),
+    on: true,
+    inherits: "pause_map",
+  });
+}
 for (const [id, t] of Object.entries(PAUSE_PARTS)) {
   const other = PAGE_NAMES[id] || { name: {}, about: {} };
   pages.option({
@@ -5378,8 +5394,14 @@ function ownWord(en, exact) {
     WORD_INDEX[lang] = {};
     // (the Help menu's topic names too; this list's words win)
     for (const [e, t] of Object.entries(HELP_TOPICS[lang] || {})) WORD_INDEX[lang][wordKey(e)] = t;
-    for (const [e, t] of Object.entries(words)) WORD_INDEX[lang][wordKey(e)] = t;
+    // (by letters, the plain word over one with marks: "Game" over "GAME /")
+    for (const [e, t] of Object.entries(words)) {
+      const key = wordKey(e), plain = /^[\p{L}\p{N}' ]+$/u.test(e);
+      if (!WORD_INDEX[lang][key] || plain) WORD_INDEX[lang][key] = t;
+    }
   }
+  // (the word itself first: "Game" and the title "GAME /" share their letters, each has its own words)
+  if (words[String(en).trim()]) return words[String(en).trim()];
   const k = wordKey(en);
   if (WORD_INDEX[lang][k]) return WORD_INDEX[lang][k];
   // (the menu's small capitals read with digits for letters, "SH00T", "L1GHTS": the word, if it is one)
@@ -6317,8 +6339,9 @@ function readHub(f, k) {
   const buttons = !tab && mapPieces(f);
   if (!tab && buttons.length >= 2) tab = "MAP";
   // (the tab's part switched off: only the tabs; "MAP" still told, for the page's checks)
-  const part = { MAP: "pause_map", BRIEF: "pause_brief", PROGRESS: "pause_progress", "JASON & LUCIA": "pause_jason_lucia" }[tab];
-  if (part && !partOn(part)) return { tabs, menu: [], mapButtons: tab === "MAP" };
+  // (the map: each of its parts by its own switch, see readMap)
+  const part = { BRIEF: "pause_brief", PROGRESS: "pause_progress", "JASON & LUCIA": "pause_jason_lucia" }[tab];
+  if (part && !partOn(part)) return { tabs, menu: [] };
   // the map's own pieces (legend, places) come later: only the tabs and buttons for now
   if (tab === "MAP") return readMap(f, k, tabs, []);
   if (tab === "PROGRESS") return { tabs, menu: progressCards(f) };
@@ -6777,7 +6800,9 @@ function mapIndexOpen(f) {
   const r = pxRect(f, { x: 0.06, y: 0.1, w: 0.2, h: 0.8 });
   const panel = f.pixels(r, { step: 6, bright: [0, 80] });
   const all = Math.floor(r.w / 6) * Math.floor(r.h / 6);
-  return panel.count > all * 0.6 && plainTitle(f);
+  // (the Game page looks alike, a dark panel under a white title: its selected row's white bar starts at the
+  // screen's left edge, the index's right of its filters' column)
+  return panel.count > all * 0.6 && plainTitle(f) && !selectionBar(f) && !selectionBar(f, { low: [200, 255], spread: [0, 24] });
 }
 
 // A place's name stays in English, as the game writes it (on signs, in the world, in other menus); a task's name ("Search
@@ -6855,11 +6880,11 @@ function readMapIndex(f) {
  *  index open, the index too. */
 function readMap(f, k, tabs, menu) {
   const cards = [];
-  const card = objectiveCard(f);
+  const card = partOn("pause_map") && objectiveCard(f);
   if (card) cards.push(card);
-  const box = k.box && infoCard(f, k.box);
+  const box = partOn("pause_map_box") && k.box && infoCard(f, k.box);
   if (box) cards.push(box);
-  return { tabs, menu, mapButtons: true, buttons: mapPieces(f), cards };
+  return { tabs, menu, mapButtons: true, buttons: partOn("pause_map_buttons") ? mapPieces(f) : [], cards };
 }
 
 /** Progress: a row of cards, each named along its foot ("STATS", "VEHICLES" …): each name where it stands, in
@@ -6990,7 +7015,7 @@ pages.add({
   id: "gta6_pause",
   option: "pause_menu",
   // (the parts the player switches: the page looked for while any of them is on)
-  anyOf: Object.keys(PAUSE_PARTS),
+  anyOf: [...Object.keys(PAUSE_PARTS), ...Object.keys(MAP_PARTS)],
   hold: { follow: "menu", content: { x: 0, y: 0.1, w: 1, h: 0.83 }, buttons: { x: 0.45, y: 0.935, w: 0.535, h: 0.05 } },
 
   present(f) {
@@ -7009,7 +7034,7 @@ pages.add({
     // (the first page, the Game page and their questions: one part, told by the page's look alone)
     const r = own && !partOn("pause_home") ? { tabs: [], menu: [] }
       : k.kind === "home" ? readHome(f) : k.kind === "plain" ? readPlain(f) : k.kind === "dialog" ? readDialog(f, k) : k.kind === "tabs" ? readTabsPage(f, k)
-      : k.kind === "mapindex" ? (partOn("pause_map") ? readMap(f, k, [], readMapIndex(f)) : { tabs: [], menu: [], mapButtons: true })
+      : k.kind === "mapindex" ? readMap(f, k, [], partOn("pause_map_index") ? readMapIndex(f) : [])
       : readHub(f, k);
     if (!r) return null;
     if (!own && r.tabs.length < 2 && !r.mapButtons) return null;
