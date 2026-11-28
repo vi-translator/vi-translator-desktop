@@ -750,7 +750,11 @@ pub fn bottom_stack(words: &[Word], crop_h: f64) -> Vec<Word> {
         }
         // (one speaker's wrapped lines are 34 px apart at 1080p, two speakers' blocks 44: a plate or a
         // sign as close is no words, left out above)
-        if !(1.15 * lh..=2.4 * lh).contains(&pitch) || (centre(l) - c).abs() > 3.0 * lh {
+        // (from 0.9 line heights, where "the same line" above ends: the OCR's line boxes are taller than
+        // the letters, 32 px for a line of the game's Small subtitles 35 px over the next — between 0.9
+        // and 1.15 line heights the line above was neither joined nor taken, and a wrapped line's top
+        // half went, now and then or for good: "He'll be alright." under "Jason: Hey, Cal's my guy…")
+        if !(0.9 * lh..=2.4 * lh).contains(&pitch) || (centre(l) - c).abs() > 3.0 * lh {
             break;
         }
         below = l.mid;
@@ -2072,6 +2076,27 @@ mod centered_tests {
         // a line off to the side above line 1 isn't joined to it
         let side = [line(&[("Locals:", 24), ("again!", 24)], 374), vec![at("Garage", 100, 330, 24), at("menu", 180, 330, 24)]].concat();
         assert_eq!(texts(&bottom_stack(&side, 389.0)), "Locals: again!");
+    }
+
+    #[test]
+    fn a_wrapped_line_keeps_its_top_half_with_tall_ocr_boxes() {
+        // GTA VI's Small subtitles over a PS5 Remote Play stream (1080p), in the subtitles area's crop (128 px
+        // tall, from y 864): macOS Vision gives every word its line's box, 32 px tall for the top line (a name,
+        // capitals and descenders) and 28 for the bottom one, their middles 35 px apart — a pitch of 1.09 line
+        // heights. The top line was dropped and only "He'll be alright." was translated.
+        let word = |t: &str, x: u32, y: u32, h: u32| Word { text: t.into(), rect: (x, y, 10 * t.len() as u32, h), line: 0 };
+        let mut x = 449;
+        let mut top = Vec::new();
+        for t in ["Jason:", "Hey,", "Cal's", "my", "guy.", "He's", "just-", "he's", "a", "little", "dramatic."] {
+            top.push(word(t, x, 62, 32));
+            x += 10 * t.len() as u32 + 8;
+        }
+        let bottom = vec![word("He'll", 683, 99, 28), word("be", 740, 99, 28), word("alright.", 770, 99, 28)];
+        let both = [top, bottom].concat();
+        assert_eq!(
+            texts(&bottom_stack(&both, 128.0)),
+            "Jason: Hey, Cal's my guy. He's just- he's a little dramatic. He'll be alright."
+        );
     }
 
     #[test]
