@@ -111,6 +111,8 @@ pub struct Card {
     pub pic: String,
     pub title_en: String,
     pub title_ar: String,
+    /// the name shown as the script gives it, not translated (a place's name stays in English)
+    pub title_fixed: bool,
     /// one line's height (frame fractions)
     pub title_h: f64,
     pub text_en: String,

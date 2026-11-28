@@ -2696,7 +2696,10 @@ fn localize_screen(l: &mut screens::ScreenLayout, cache: &HashMap<String, String
         l.title_ar = get(&l.title_en, &mut missing).unwrap_or_default();
     }
     for c in l.cards.iter_mut() {
-        if !c.title_en.is_empty() && untranslated(&c.title_ar, &c.title_en) {
+        if c.title_fixed && c.title_ar.is_empty() {
+            c.title_ar = c.title_en.clone();
+        }
+        if !c.title_fixed && !c.title_en.is_empty() && untranslated(&c.title_ar, &c.title_en) {
             c.title_ar = get(&c.title_en, &mut missing).unwrap_or_default();
         }
         if !c.text_en.is_empty() && untranslated(&c.text_ar, &c.text_en) {
@@ -2835,5 +2838,11 @@ mod localize_screen_tests {
         assert_eq!(c.rows[1].value_ar, "$1,000 - $10,000", "money isn't sent");
         assert!(missing);
         assert_eq!(asked, ["Dunk's Robbery Tips", "Come back at night", "Take Value"]);
+        // a place's name, fixed by the script: kept as it is, never asked for
+        let mut l = screens::ScreenLayout { cards: vec![screens::Card { twin: true, title_en: "GAME HORDE".into(), title_ar: "GAME HORDE".into(), title_fixed: true, ..Default::default() }], ..Default::default() };
+        let mut asked = Vec::new();
+        localize_screen(&mut l, &cache, &known, &mut |en: &str| asked.push(en.to_string()));
+        assert_eq!(l.cards[0].title_ar, "GAME HORDE");
+        assert!(asked.is_empty());
     }
 }

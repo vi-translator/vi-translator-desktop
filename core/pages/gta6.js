@@ -6677,6 +6677,8 @@ function infoCard(f, box) {
   }
   const ar = ownWord(out.title_en, true);
   if (ar) out.title_ar = ar;
+  // a place's name stays in English (a mission's, under its coloured line, or a task's, is translated)
+  else if (!box.line && isPlaceName(out.title_en)) Object.assign(out, { title_ar: out.title_en, title_fixed: true });
   if (out.head_en) {
     const h = ownWord(out.head_en, true);
     if (h) out.head_ar = h;
@@ -6710,6 +6712,11 @@ function mapIndexOpen(f) {
   return panel.count > all * 0.6 && plainTitle(f);
 }
 
+// A place's name stays in English, as the game writes it (on signs, in the world, in other menus); a task's name ("Search
+// for the Skunk Ape", "Collect Chemicals for Kyle") is translated: told by its first word, a verb.
+const TASK_VERBS = /^(move|search|collect|catch|pawn|check|meditate|steal|fence|find|meet|deliver|visit|go|help|get|buy|sell|win|complete|explore|take|rob|hunt|race|follow|pick|drive|escape|investigate|talk|return|bring|survive|destroy|protect|track|photograph|learn|start|play|finish|recover|retrieve|kill|chase|stop|break|grab|smash|hold)/i;
+const isPlaceName = (en) => !TASK_VERBS.test(String(en).trim());
+
 // the index's sections, its title one of them (by the filters' column on its left)
 const INDEX_TITLES = ["PERSONAL", "STORY", "ROBBERIES", "ACTIVITIES", "EXPLORATION", "VEHICLES", "AMMU-NATIONS", "STYLE", "FOOD & DRINK"];
 /** Letters apart (edits from one to the other). */
@@ -6724,22 +6731,33 @@ function editDistance(a, b) {
 }
 /** The index's title by its letters, read with a slip or two ("AMMI-ENATIONS"): the section's name, or null. */
 function indexTitle(read) {
-  const k = wordKey(read);
+  // (accents and digits read for letters dropped: "NÅT10Ns")
+  const k = wordKey(String(read).normalize("NFD").replace(/[̀-ͯ]/g, "")).replace(/0/g, "o").replace(/1/g, "i");
+  if (k.length < 4) return null;
   let best = null;
   for (const t of INDEX_TITLES) {
     const d = editDistance(k, wordKey(t));
     if (d <= Math.max(1, Math.floor(wordKey(t).length / 5)) && (!best || d < best.d)) best = { en: t, d };
   }
-  return best && best.en;
+  if (best) return best.en;
+  // part of it read ("NATIONS" of AMMU-NATIONS), or read with more words around it ("… VEHICLES")
+  const parts = INDEX_TITLES.filter((t) => { const w = wordKey(t); return (k.length >= 5 && w.endsWith(k)) || (w.length >= 5 && k.includes(w)); });
+  return parts.length === 1 ? parts[0] : null;
 }
 
 /** The index: its title and its list (the selected row on its white bar); its words where the script has them
  *  (headings and kinds of place), names to the translator. */
 function readMapIndex(f) {
   let title = [];
+  // (each scale until one reads a section's name; else the first that read anything)
   for (const scale of [2, 3, 1]) {
-    title = textBoxes(f, segments(f, pxRect(f, { x: 0.006, y: 0.01, w: 0.27, h: 0.065 }), { scale }), 0).filter((b) => /\p{L}{2}/u.test(b.en));
-    if (title.length) break;
+    // (down to the list's first row: a tighter area cut the title's letters off at the bottom, "PERSONAL" unread)
+    const read = textBoxes(f, segments(f, pxRect(f, { x: 0.006, y: 0.005, w: 0.27, h: 0.085 }), { scale }), 0).filter((b) => /\p{L}{2}/u.test(b.en));
+    if (!title.length) title = read;
+    if (read.some((b) => indexTitle(b.en))) {
+      title = read;
+      break;
+    }
   }
   title.forEach((b) => Object.assign(b, { item: false, heading: true, weight: 700, en: indexTitle(b.en) || b.en }));
   const list = pxRect(f, { x: 0.05, y: 0.085, w: 0.23, h: 0.82 });
@@ -6756,6 +6774,8 @@ function readMapIndex(f) {
     const ar = ownWord(m.en, !isCaps(m.en));
     if (ar) Object.assign(m, { ar, fixed: true });
   }
+  // a place's name: the game's own row left as it is (not covered, not translated)
+  for (let i = menu.length - 1; i >= 0; i--) if (!menu[i].ar && !isCaps(menu[i].en) && isPlaceName(menu[i].en)) menu.splice(i, 1);
   for (const m of menu) {
     if (bar && Math.abs((m.mid || 0) - (bar.y + bar.h / 2)) < bar.h * 0.35) m.rect = Object.assign({}, m.rect, { y: bar.y / f.h, h: bar.h / f.h });
   }

@@ -1237,7 +1237,8 @@ window.AS = (() => {
     // with their icons, the sentence, the table), translated. Above the game's box when there's no room under it.
     const twinCard = (c) => {
       // (nothing translated yet: not drawn, rather than an English copy)
-      if (!c.title_ar && !c.text_ar && !c.head_ar) return;
+      // (a place's name kept in English isn't a translation: the sentence or heading must be in too)
+      if (!(c.title_ar && !c.title_fixed) && !c.text_ar && !c.head_ar && !(c.title_ar && !c.text_en && !c.head_en)) return;
       const gap = Math.max(2, H * 0.004);
       const th = c.title_h * H, xh = (c.text_h || c.title_h) * H, hh = (c.head_h || c.text_h || c.title_h) * H;
       const rh = (c.rows_h || c.head_h || c.text_h || c.title_h) * H;
