@@ -374,6 +374,7 @@ impl Pages {
             g.set("__blobs", Function::new(ctx.clone(), |rect: String, opts: String| helper_blobs(&rect, &opts))?)?;
             g.set("__icon", Function::new(ctx.clone(), |rect: String, thr: f64| helper_icon(&rect, thr))?)?;
             g.set("__game_icon_at", Function::new(ctx.clone(), |rect: String| helper_game_icon_at(&rect))?)?;
+            g.set("__game_icon_scores", Function::new(ctx.clone(), |rect: String| helper_game_icon_scores(&rect))?)?;
             // (text helpers: bounded input, and "nothing" once the call is out of time, like the frame helpers)
             g.set("__letters", Function::new(ctx.clone(), |s: String| text_helper(&s, 4096, String::new(), || crate::screens::letters(&s)))?)?;
             g.set("__lang", Function::new(ctx.clone(), || crate::screens::words_lang())?)?;
@@ -611,17 +612,24 @@ impl Pages {
 /// A switch as the profile has it (`more`): as the player set it; else, for one that `inherits` an older
 /// switch, as that one is set; else the script's default (on for one the script doesn't declare).
 pub fn option_on(options: &[OptionInfo], more: &std::collections::BTreeMap<String, bool>, id: &str) -> bool {
-    if let Some(&on) = more.get(id) {
-        return on;
+    // (down the chain of older switches, a few at most: the map's index from the map, the map from the pause menu)
+    let mut id = id;
+    for _ in 0..4 {
+        if let Some(&on) = more.get(id) {
+            return on;
+        }
+        match options.iter().find(|o| o.id == id) {
+            Some(o) if !o.inherits.is_empty() && o.inherits != o.id => match options.iter().find(|x| x.id == o.inherits) {
+                // (an older switch the script declares: as it is set, or as its own older one is)
+                Some(_) => id = &o.inherits,
+                // (one it no longer declares: as set, else this one's default)
+                None => return more.get(&o.inherits).copied().unwrap_or(o.on),
+            },
+            Some(o) => return o.on,
+            None => return true,
+        }
     }
-    match options.iter().find(|o| o.id == id) {
-        Some(o) if !o.inherits.is_empty() && o.inherits != o.id => more
-            .get(&o.inherits)
-            .copied()
-            .unwrap_or_else(|| options.iter().find(|x| x.id == o.inherits).map_or(o.on, |x| x.on)),
-        Some(o) => o.on,
-        None => true,
-    }
+    options.iter().find(|o| o.id == id).map_or(true, |o| o.on)
 }
 
 /// The JavaScript side of the helpers and the page registry.
@@ -670,6 +678,8 @@ function __frame() {
     icon: (r, threshold) => __icon(JSON.stringify(r), threshold ?? 140) || null,
     // which of the game's icons the app carries is there ("X", "L2" …), or "" (then f.icon cuts it)
     gameIconAt: (r) => __game_icon_at(JSON.stringify(r)),
+    // the carried icons most like the picture there, best first: [[name, score], …]
+    gameIconScores: (r) => JSON.parse(__game_icon_scores(JSON.stringify(r))),
     runs: (r, o) => JSON.parse(__runs(JSON.stringify(r), JSON.stringify(o || {}))),
     median: (r, o) => JSON.parse(__median(JSON.stringify(r), JSON.stringify(o || {}))),
     contrast: (r, against, share) => JSON.parse(__contrast(JSON.stringify(r), JSON.stringify(against), share ?? 0.125)),
@@ -1003,6 +1013,18 @@ fn helper_icon(rect: &str, thr: f64) -> Option<String> {
 }
 
 /// `f.gameIconAt(rect)`: the name of the game's icon the app carries that is there ("X", "L2" …), or "".
+/// `f.gameIconScores(rect)`: the carried icons most like the picture there, best first: `[[name, score], …]` (3).
+fn helper_game_icon_scores(rect: &str) -> String {
+    let Ok(r) = serde_json::from_str::<PxRect>(rect) else { return "[]".into() };
+    with_frame(|f, _| {
+        let (x, y) = (r.x.max(0.0) as u32, r.y.max(0.0) as u32);
+        let pic = crate::game_icons::Picture { w: f.w, h: f.h, rgba: &f.rgba };
+        let s = crate::game_icons::ranked(&pic, (x, y, r.w.max(0.0) as u32, r.h.max(0.0) as u32)).unwrap_or_default();
+        serde_json::to_string(&s.iter().take(3).map(|(n, v)| (n, (*v * 1000.0).round() / 1000.0)).collect::<Vec<_>>()).unwrap_or_else(|_| "[]".into())
+    })
+    .unwrap_or_else(|| "[]".into())
+}
+
 fn helper_game_icon_at(rect: &str) -> String {
     let Ok(r) = serde_json::from_str::<PxRect>(rect) else { return String::new() };
     with_frame(|f, _| {
@@ -1394,8 +1416,80 @@ mod built_in_tests {
         assert!(p.options.iter().any(|o| o.id == "wasted" && o.on));
         assert!(p.list.iter().any(|i| i.id == "gta6_pause"));
         // (the pause menu: a switch for each of its parts, each from the old "pause_menu")
-        assert!(p.options.iter().filter(|o| o.id.starts_with("pause_")).all(|o| o.on && o.inherits == "pause_menu"));
+        assert!(p.options.iter().filter(|o| o.id.starts_with("pause_")).all(|o| o.on && (o.inherits == "pause_menu" || (o.id.starts_with("pause_map_") && o.inherits == "pause_map"))));
         assert_eq!(p.options.iter().filter(|o| o.inherits == "pause_menu").count(), 8);
+        // (the map's parts, each from the map's switch)
+        assert_eq!(p.options.iter().filter(|o| o.inherits == "pause_map").count(), 3);
+        // down the chain: the map's index as the map is set, the map as the old pause menu switch was, until each is set
+        let mut o = crate::config::ProfileOpts::default();
+        assert!(p.switch_on(&o, "pause_map_index"));
+        o.more.insert("pause_menu".into(), false);
+        assert!(!p.switch_on(&o, "pause_map") && !p.switch_on(&o, "pause_map_index"), "from the pause menu, through the map");
+        o.more.insert("pause_map".into(), true);
+        assert!(p.switch_on(&o, "pause_map_index") && p.switch_on(&o, "pause_map_buttons"), "from the map");
+        o.more.insert("pause_map_index".into(), false);
+        assert!(!p.switch_on(&o, "pause_map_index") && p.switch_on(&o, "pause_map_box"), "each its own once set");
+    }
+
+    /// A frame the game saved (`tests/frames`, cut down to 720p: the size of the phones' PS5 stream).
+    fn game_frame(name: &str) -> FrameData {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/frames").join(name);
+        let img = image::open(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display())).to_rgba8();
+        let (w, h) = img.dimensions();
+        FrameData { w, h, rgba: img.into_raw(), seq: 1 }
+    }
+
+    /// What the pause menu's `present` says of a frame (pixels only: no OCR needed).
+    fn pause_kind(name: &str) -> serde_json::Value {
+        let p = Pages::load(built_in("gta6").expect("carried")).expect("loads");
+        p.call("gta6_pause", "present", &game_frame(name), None, &serde_json::Value::Null)
+    }
+
+    /// The info box's place in 1080p pixels (the frames are 720p).
+    fn box_1080(k: &serde_json::Value) -> [f64; 4] {
+        let b = &k["box"];
+        let s = 1080.0 / 720.0;
+        [b["x0"].as_f64().unwrap() * s, b["y0"].as_f64().unwrap() * s, b["x1"].as_f64().unwrap() * s, b["y1"].as_f64().unwrap() * s]
+    }
+
+    #[test]
+    fn the_map_and_the_box_of_the_place_under_the_cursor() {
+        // the map (its bar on top, MAP in pink) with a mission's box: its edges, its lavender line on top
+        let k = pause_kind("map_box.png");
+        assert_eq!(k["kind"], "hub", "{k}");
+        let [x0, y0, x1, y1] = box_1080(&k);
+        // (the game's box: x 1031 … 1565, y 437 … 641 at 1080p)
+        assert!((x0 - 1031.0).abs() <= 6.0 && (x1 - 1565.0).abs() <= 6.0, "{k}");
+        assert!((y0 - 437.0).abs() <= 6.0 && (y1 - 641.0).abs() <= 6.0, "{k}");
+        let colour = k["box"]["line"]["colour"].as_str().expect("its line");
+        let rgb: Vec<i64> = (0..3).map(|i| i64::from_str_radix(&colour[1 + 2 * i..3 + 2 * i], 16).unwrap()).collect();
+        assert!(rgb[2] > 200 && rgb[0] > 150 && rgb[1] < rgb[0], "lavender, {colour}");
+        // the map with no box up: the map, no box
+        let k = pause_kind("map_plain.png");
+        assert_eq!(k["kind"], "hub", "{k}");
+        assert!(k["box"].is_null(), "{k}");
+    }
+
+    #[test]
+    fn the_maps_index_open_on_the_left() {
+        // the index over the map's left side (its bar on top hidden): its own kind of page, the box still told
+        let k = pause_kind("map_index_box.png");
+        assert_eq!(k["kind"], "mapindex", "{k}");
+        let [x0, y0, x1, _] = box_1080(&k);
+        assert!((x0 - 1031.0).abs() <= 6.0 && (x1 - 1565.0).abs() <= 6.0 && (y0 - 414.0).abs() <= 8.0, "{k}");
+        assert!(k["box"]["line"]["colour"].is_string(), "a mission's pink line: {k}");
+    }
+
+    #[test]
+    fn a_box_over_the_fog_keeps_its_own_edges() {
+        // the map's dark fog right of the box, out to the screen's side: the box's own right edge, not the fog's
+        // (it was taken for the box's, a twin twice as wide), and its whole height with fog on both sides
+        let k = pause_kind("map_index_fog.png");
+        assert_eq!(k["kind"], "mapindex", "{k}");
+        let [x0, y0, x1, y1] = box_1080(&k);
+        // (the game's box: x 1031 … 1565, y 392 … 688 at 1080p)
+        assert!((x0 - 1031.0).abs() <= 6.0 && (x1 - 1565.0).abs() <= 6.0, "{k}");
+        assert!((y0 - 392.0).abs() <= 8.0 && (y1 - 688.0).abs() <= 8.0, "{k}");
     }
 }
 
@@ -1767,7 +1861,7 @@ mod content_tests {
         let ids: Vec<&str> = groups.iter().map(|g| g["id"].as_str().unwrap()).collect();
         assert_eq!(ids, [
             "phone_text", "phone_bubble",
-            "pause_home", "pause_map", "pause_brief", "pause_jason_lucia", "pause_progress", "pause_help", "pause_settings", "pause_tabs",
+            "pause_home", "pause_map", "pause_map_index", "pause_map_box", "pause_map_buttons", "pause_brief", "pause_jason_lucia", "pause_progress", "pause_help", "pause_settings", "pause_tabs",
             "help", "instructions", "game_notices",
             "wasted", "mission_failed", "weapon_wheel",
         ]);
@@ -1781,7 +1875,7 @@ mod content_tests {
         }
         // the pause menu looked for while any of its parts is on
         let pause = v["pages"].as_array().unwrap().iter().find(|p| p["id"] == "gta6_pause").unwrap();
-        assert_eq!(pause["any_of"].as_array().unwrap().len(), 8);
+        assert_eq!(pause["any_of"].as_array().unwrap().len(), 11, "its 8 parts and the map's 3");
         // another game has none
         assert!(super::page_options("rdr2", &dir)["groups"].as_array().unwrap().is_empty());
     }

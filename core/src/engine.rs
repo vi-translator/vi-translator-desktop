@@ -1271,7 +1271,18 @@ impl Reader {
                             let _ = jobs.send(Job { area: MENU_TEXT.into(), seq: seq_counter, en: en.to_string(), phrases: Vec::new(), icons: Vec::new(), line_h: 0.0, en_start: Instant::now(), text_box: None, game_box: None, parts: Vec::new() });
                         }
                     };
-                    screen_missing = localize_screen(layout, &cache.map, &mut ask);
+                    // (the translation memory, with VI Translator's ready translations, before the translator: a
+                    // line known there shows on this read)
+                    let memory = ctx.memory.clone();
+                    let known = move |en: &str| -> Option<String> {
+                        memory
+                            .lock()
+                            .unwrap()
+                            .get(en, &[], &[])
+                            .map(|(segs, _)| segs.iter().map(|s| s.0.as_str()).collect::<String>())
+                            .filter(|ar| !ar.trim().is_empty() && translate::keeps_terms(en, ar))
+                    };
+                    screen_missing = localize_screen(layout, &cache.map, &known, &mut ask);
                     drop(cache);
                 } else if found.is_some() {
                     screen_missing = false;
@@ -2650,10 +2661,11 @@ mod english_icon_tests {
 }
 
 /// The fixed words of a game page that the script or the layout's words didn't translate: each from
-/// the translator (via `cache`, filled by MENU_TEXT jobs; `ask` queues one). Until translated, tabs,
+/// the session's translations (`cache`, filled by MENU_TEXT jobs), else the translation memory and the ready
+/// translations (`known`), else the translator (`ask` queues one). Until translated, tabs,
 /// buttons and the name block keep the English, and no title is drawn. Returns true while any is
 /// missing.
-fn localize_screen(l: &mut screens::ScreenLayout, cache: &HashMap<String, String>, ask: &mut dyn FnMut(&str)) -> bool {
+fn localize_screen(l: &mut screens::ScreenLayout, cache: &HashMap<String, String>, known: &dyn Fn(&str) -> Option<String>, ask: &mut dyn FnMut(&str)) -> bool {
     // "MAP", "MONDAY 05:00": translated as ordinary words ("Map"), not shouted letters
     let words = |en: &str| -> String {
         if en.chars().any(|c| c.is_lowercase()) {
@@ -2670,7 +2682,8 @@ fn localize_screen(l: &mut screens::ScreenLayout, cache: &HashMap<String, String
     let mut missing = false;
     let mut get = |en: &str, missing: &mut bool| -> Option<String> {
         let key = words(en);
-        let hit = cache.get(&key).cloned();
+        // (the memory keeps the game's lines as read: the English as it is first, then as words)
+        let hit = cache.get(&key).cloned().or_else(|| known(en)).or_else(|| if key != en { known(&key) } else { None });
         if hit.is_none() {
             ask(&key);
             *missing = true;
@@ -2683,11 +2696,31 @@ fn localize_screen(l: &mut screens::ScreenLayout, cache: &HashMap<String, String
         l.title_ar = get(&l.title_en, &mut missing).unwrap_or_default();
     }
     for c in l.cards.iter_mut() {
-        if !c.title_en.is_empty() && untranslated(&c.title_ar, &c.title_en) {
+        if c.title_fixed && c.title_ar.is_empty() {
+            c.title_ar = c.title_en.clone();
+        }
+        if !c.title_fixed && !c.title_en.is_empty() && untranslated(&c.title_ar, &c.title_en) {
             c.title_ar = get(&c.title_en, &mut missing).unwrap_or_default();
         }
         if !c.text_en.is_empty() && untranslated(&c.text_ar, &c.text_en) {
             c.text_ar = get(&c.text_en, &mut missing).unwrap_or_default();
+        }
+        if !c.head_en.is_empty() && untranslated(&c.head_ar, &c.head_en) {
+            c.head_ar = get(&c.head_en, &mut missing).unwrap_or_default();
+        }
+        for x in c.sub.iter_mut() {
+            if !x.en.is_empty() && untranslated(&x.ar, &x.en) {
+                x.ar = get(&x.en, &mut missing).unwrap_or_default();
+            }
+        }
+        // (a value of numbers or money stays as it is: the script gives it back unchanged)
+        for r in c.rows.iter_mut() {
+            if !r.en.is_empty() && untranslated(&r.ar, &r.en) {
+                r.ar = get(&r.en, &mut missing).unwrap_or_default();
+            }
+            if r.value_en.chars().filter(|ch| ch.is_alphabetic()).count() >= 2 && untranslated(&r.value_ar, &r.value_en) {
+                r.value_ar = get(&r.value_en, &mut missing).unwrap_or_default();
+            }
         }
     }
     for lb in l.labels.iter_mut() {
@@ -2762,5 +2795,54 @@ mod english_color_tests {
         let icons = vec!["data:x".to_string()];
         let segs = with_phrase_colors(english_segments("Press ⟦1⟧ to follow Nate", &icons), &[("Nate".into(), "#ff86bf".into()), ("Lucia".into(), "#ff86bf".into())]);
         assert_eq!(segs, vec![("Press ".to_string(), None), (String::new(), Some("icon:data:x".to_string())), (" to follow ".to_string(), None), ("Nate".to_string(), Some("#ff86bf".to_string()))]);
+    }
+}
+
+#[cfg(test)]
+mod localize_screen_tests {
+    use super::*;
+
+    #[test]
+    fn the_maps_box_takes_known_translations_before_the_translator() {
+        let mut l = screens::ScreenLayout {
+            cards: vec![screens::Card {
+                twin: true,
+                head_en: "DUNK'S ROBBERY TIPS".into(),
+                title_en: "LOST VISTA".into(),
+                text_en: "There's a stash of pills somewhere.".into(),
+                sub: vec![screens::CardLine { en: "Come back at night".into(), ..Default::default() }],
+                rows: vec![
+                    screens::CardRow { en: "SECURITY".into(), ar: "الحراسة".into(), value_en: "LOW".into(), ..Default::default() },
+                    screens::CardRow { en: "TAKE VALUE".into(), value_en: "$1,000 - $10,000".into(), value_ar: "$1,000 - $10,000".into(), ..Default::default() },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        // this session's translations first, then the memory (the ready translations), the rest asked for
+        let cache: HashMap<String, String> = [("Lost Vista".to_string(), "لوست فيستا".to_string())].into();
+        let known = |en: &str| -> Option<String> {
+            match en {
+                "There's a stash of pills somewhere." => Some("هناك مخبأ حبوب في مكان ما.".into()),
+                "Low" => Some("منخفض".into()),
+                _ => None,
+            }
+        };
+        let mut asked = Vec::new();
+        let missing = localize_screen(&mut l, &cache, &known, &mut |en: &str| asked.push(en.to_string()));
+        let c = &l.cards[0];
+        assert_eq!(c.title_ar, "لوست فيستا");
+        assert_eq!(c.text_ar, "هناك مخبأ حبوب في مكان ما.");
+        assert_eq!(c.rows[0].ar, "الحراسة", "the script's own word stays");
+        assert_eq!(c.rows[0].value_ar, "منخفض");
+        assert_eq!(c.rows[1].value_ar, "$1,000 - $10,000", "money isn't sent");
+        assert!(missing);
+        assert_eq!(asked, ["Dunk's Robbery Tips", "Come back at night", "Take Value"]);
+        // a place's name, fixed by the script: kept as it is, never asked for
+        let mut l = screens::ScreenLayout { cards: vec![screens::Card { twin: true, title_en: "GAME HORDE".into(), title_ar: "GAME HORDE".into(), title_fixed: true, ..Default::default() }], ..Default::default() };
+        let mut asked = Vec::new();
+        localize_screen(&mut l, &cache, &known, &mut |en: &str| asked.push(en.to_string()));
+        assert_eq!(l.cards[0].title_ar, "GAME HORDE");
+        assert!(asked.is_empty());
     }
 }

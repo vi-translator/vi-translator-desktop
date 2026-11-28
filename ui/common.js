@@ -1223,6 +1223,11 @@ window.AS = (() => {
     const W = root.clientWidth;
     const H = root.clientHeight;
     const shadow = (fs) => `0 ${(fs * 0.05).toFixed(1)}px ${(fs * 0.08).toFixed(1)}px rgba(0,0,0,0.8)`;
+    // a black outline round the letters (text-shadow in eight directions: works on the TVs' old browsers too)
+    const outlined = (fs) => {
+      const d = Math.max(1, fs * 0.06).toFixed(1);
+      return [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]].map((p) => `${p[0] * d}px ${p[1] * d}px 0 #000`).join(", ");
+    };
     const mk = (css, html) => {
       const d = document.createElement("div");
       // (no object spread in this file: 2018 Samsung TVs draw it too, Chromium 56)
@@ -1230,6 +1235,110 @@ window.AS = (() => {
       d.innerHTML = html;
       root.appendChild(d);
       return d;
+    };
+
+    // The map's info box drawn again right under the game's, its twin: the same width and left edge, at least its
+    // height, its see-through background, each part where the game has it (heading, picture and name, short lines
+    // with their icons, the sentence, the table), translated. Above the game's box when there's no room under it.
+    const twinCard = (c) => {
+      // (nothing translated yet: not drawn, rather than an English copy)
+      // (a place's name kept in English isn't a translation: the sentence or heading must be in too)
+      if (!(c.title_ar && !c.title_fixed) && !c.text_ar && !c.head_ar && !(c.title_ar && !c.text_en && !c.head_en)) return;
+      const gap = Math.max(2, H * 0.004);
+      const th = c.title_h * H, xh = (c.text_h || c.title_h) * H, hh = (c.head_h || c.text_h || c.title_h) * H;
+      const rh = (c.rows_h || c.head_h || c.text_h || c.title_h) * H;
+      const pad = H * 0.0185;
+      const font = `"${opts.text_font}", ${fonts()}`, titleFont = `"${opts.title_font || opts.text_font}", ${fonts()}`;
+      const card = mk({
+        left: `${c.rect.x * W}px`,
+        top: `${(c.rect.y + c.rect.h) * H + gap}px`,
+        width: `${c.rect.w * W}px`,
+        minHeight: `${c.rect.h * H}px`,
+        boxSizing: "border-box",
+        padding: `${pad * 0.6}px ${pad}px ${pad * 0.7}px`,
+        background: c.bg || "rgba(18, 17, 32, 0.85)",
+        borderTop: c.border ? `${Math.max(2, (c.border_h || 0.003) * H).toFixed(1)}px solid ${c.border}` : "none",
+        whiteSpace: "normal",
+        color: "#ffffff",
+        textAlign: rtl() ? "right" : "left",
+        fontFamily: font,
+        lineHeight: "1.35",
+      }, "");
+      const el = (css, text) => {
+        const d = document.createElement("div");
+        Object.assign(d.style, { unicodeBidi: "plaintext" }, css);
+        if (text != null) d.textContent = text;
+        return d;
+      };
+      const img = (src, w, h) => {
+        const i = document.createElement("img");
+        i.src = src;
+        Object.assign(i.style, { width: w ? `${w}px` : "auto", height: `${h}px`, objectFit: "contain", flex: "none", display: "block" });
+        return i;
+      };
+      if (c.head_en) {
+        // its band, darker, across the whole box
+        card.appendChild(el({
+          margin: `${-pad * 0.6}px ${-pad}px ${pad * 0.45}px`, padding: `${pad * 0.45}px ${pad}px`, background: c.head_bg || "transparent",
+          fontFamily: titleFont, fontWeight: "700", fontSize: `${hh * 1.3}px`, lineHeight: "1.2",
+        }, c.head_ar || c.head_en));
+      }
+      const head = el({ display: "flex", alignItems: "center", gap: `${xh * 0.5}px`, margin: `${xh * 0.2}px 0 ${xh * 0.35}px` });
+      if (c.pic) head.appendChild(img(c.pic, th * 1.75, th * 1.75));
+      head.appendChild(el({ fontFamily: titleFont, fontWeight: "700", fontSize: `${th * 1.3}px`, lineHeight: "1.2" }, c.title_ar || c.title_en));
+      card.appendChild(head);
+      for (const s of c.sub || []) {
+        const sh = (s.h || c.text_h || c.title_h) * H;
+        const line = el({ display: "flex", alignItems: "center", gap: `${sh * 0.5}px`, margin: `${sh * 0.15}px 0` });
+        if (s.icon) line.appendChild(img(s.icon, 0, sh * 1.3));
+        line.appendChild(el({ fontSize: `${sh * (s.caps ? 1.15 : 1.25)}px`, fontWeight: s.caps ? "700" : "500" }, s.ar || s.en));
+        card.appendChild(line);
+      }
+      if (c.text_en) card.appendChild(el({ fontSize: `${xh * 1.25}px`, lineHeight: "1.45", margin: `${xh * 0.25}px 0` }, c.text_ar || c.text_en));
+      (c.rows || []).forEach((r, i) => {
+        const row = el({
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: `${rh}px`,
+          padding: `${rh * 0.3}px 0`, borderTop: i ? "1px solid rgba(255, 255, 255, 0.12)" : "none",
+          marginTop: i ? "0" : `${rh * 0.4}px`,
+        });
+        row.appendChild(el({ fontFamily: titleFont, fontWeight: "700", fontSize: `${rh * 1.25}px` }, r.ar || r.en));
+        if ((r.value_icons || []).length) {
+          const icons = el({ display: "flex", alignItems: "center", gap: `${rh * 0.45}px`, direction: "ltr" });
+          for (const src of r.value_icons) icons.appendChild(img(src, 0, rh * 1.3));
+          row.appendChild(icons);
+        } else if (r.value_en) row.appendChild(el({ fontFamily: titleFont, fontWeight: "700", fontSize: `${rh * 1.25}px`, color: r.value_fg || "#ffffff", direction: "ltr" }, r.value_ar || r.value_en));
+        card.appendChild(row);
+      });
+      // Under the game's box; where that covers the page's other translations (the map's buttons bottom right, its
+      // tabs on top, its index on the left) or runs off the picture: above it, else beside it on the left.
+      const cw = c.rect.w * W, ch = card.offsetHeight, gx = c.rect.x * W, gy = c.rect.y * H, gb = (c.rect.y + c.rect.h) * H;
+      const avoid = [];
+      const bs = (L.buttons || []).filter((b) => b.text_rect);
+      if (bs.length) {
+        // (each button's translation goes left of its English, about as wide again)
+        const x0 = Math.min.apply(null, bs.map((b) => b.text_rect.x - b.text_rect.w * 1.4 - 0.03));
+        const y0 = Math.min.apply(null, bs.map((b) => b.text_rect.y)), y1 = Math.max.apply(null, bs.map((b) => b.text_rect.y + b.text_rect.h));
+        avoid.push({ x: x0 * W, y: y0 * H - gap, w: W, h: (y1 - y0) * H + 2 * gap });
+      }
+      for (const lb of L.labels || []) avoid.push({ x: lb.rect.x * W, y: lb.rect.y * H, w: lb.rect.w * W, h: lb.rect.h * H });
+      for (const m of L.menu || []) if (m.rect.x < 0.3) avoid.push({ x: 0, y: m.rect.y * H, w: 0.285 * W, h: m.rect.h * H });
+      const free = (x, y) => x >= 0 && y >= 0 && x + cw <= W && y + ch <= H
+        && !avoid.some((a) => x < a.x + a.w && a.x < x + cw && y < a.y + a.h && a.y < y + ch);
+      const spots = [[gx, gb + gap], [gx, gy - gap - ch], [gx - gap - cw, gy]];
+      const spot = spots.find((p) => free(p[0], p[1]));
+      // (above it: held by its bottom edge, so it grows upward when its pictures or fonts come in, never over the
+      // game's box)
+      const above = (y) => {
+        card.style.top = "auto";
+        card.style.bottom = `${H - (gy - gap)}px`;
+      };
+      if (spot) {
+        card.style.left = `${spot[0]}px`;
+        if (spot === spots[1]) above();
+        else card.style.top = `${spot[1]}px`;
+      } else if (gb + gap + ch > H && gy - gap - ch >= 0) {
+        above();
+      }
     };
 
     // UI pieces replaced by Arabic replicas (pause-menu tabs): same box and colors as the game's.
@@ -1343,6 +1452,10 @@ window.AS = (() => {
     // A box of the game's drawn again under it, translated (the map's objective): its see-through background
     // and coloured top line, the picture beside the name, the sentence under them.
     for (const c of L.cards || []) {
+      if (c.twin) {
+        twinCard(c);
+        continue;
+      }
       if (!c.title_ar && !c.text_ar) continue;
       const th = c.title_h * H, xh = (c.text_h || c.title_h) * H;
       const pad = xh * 0.7;
@@ -1469,13 +1582,18 @@ window.AS = (() => {
           fontWeight: "700",
           fontSize: `${bfs}px`,
           color: b.fg || "#ffffff",
-          textShadow: shadow(bfs),
+          // (the map's: a black outline round the letters, as the game's, white or greyed out)
+          textShadow: b.outline ? outlined(bfs) : shadow(bfs),
         }, "");
         // (right to left: the icon on the right, as the game's after its word)
         if (b.icon && b.icon_rect) {
           const img = document.createElement("img");
           img.src = b.icon;
-          Object.assign(img.style, { height: `${b.icon_rect.h * H}px`, width: `${b.icon_rect.w * W}px`, objectFit: "contain", flex: "none", display: "block" });
+          // (a greyed-out button: the game draws its icon solid, its white turned the grey of its word and its black
+          // outline and symbol kept: the clean white icon darkened to that grey, not made see-through)
+          const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(b.fg || "");
+          const lum = m ? Math.max(parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)) : 255;
+          Object.assign(img.style, { height: `${b.icon_rect.h * H}px`, width: `${b.icon_rect.w * W}px`, objectFit: "contain", flex: "none", display: "block", filter: lum < 200 ? `brightness(${(lum / 255).toFixed(2)})` : "none" });
           item.appendChild(img);
         }
         const label = document.createElement("span");

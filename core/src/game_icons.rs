@@ -82,6 +82,16 @@ pub fn data_url(name: &str) -> Option<&'static str> {
 /// grey levels: at least 0.7, and well ahead of the next best; on 711 icons from saved frames: 343 recognised,
 /// none wrong — the others keep the picture cut from the frame).
 pub fn identify(c: &Picture, r: (u32, u32, u32, u32)) -> Option<&'static str> {
+    let scores = ranked(c, r)?;
+    match scores.as_slice() {
+        [(name, best), rest @ ..] if *best >= 0.7 && rest.first().is_none_or(|(_, next)| best - next >= 0.05) => Some(name),
+        _ => None,
+    }
+}
+
+/// How alike each carried icon is to the picture in box `r`, best first (for a caller that knows which icon to
+/// expect and only needs to tell whether these are the game's PS5 icons at all).
+pub fn ranked(c: &Picture, r: (u32, u32, u32, u32)) -> Option<Vec<(&'static str, f32)>> {
     let (x, y, w, h) = frame(c, r)?;
     // (the box found can be a pixel or two short of the icon's own on any side: a soft edge fading into the
     // background, or a black outline on a dark one; the carried icons have them: a few framings tried)
@@ -104,10 +114,7 @@ pub fn identify(c: &Picture, r: (u32, u32, u32, u32)) -> Option<&'static str> {
     if std::env::var("VIT_ICON_DEBUG").is_ok() {
         eprintln!("ICONDBG {:?} -> {:?}", (x, y, w, h), &scores[..scores.len().min(3)]);
     }
-    match scores.as_slice() {
-        [(name, best), rest @ ..] if *best >= 0.7 && rest.first().is_none_or(|(_, next)| best - next >= 0.05) => Some(name),
-        _ => None,
-    }
+    Some(scores)
 }
 
 /// How alike each carried icon is to the picture in box `r`.

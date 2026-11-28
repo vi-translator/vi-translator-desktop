@@ -579,6 +579,9 @@ pub fn content_switches(game: &str) -> Vec<ContentSwitch> {
             // the pause menu, part by part (the script's `pause_*` switches, each from the old `pause_menu`)
             page("menus", "pause_home"),
             page("menus", "pause_map"),
+            page("menus", "pause_map_index"),
+            page("menus", "pause_map_box"),
+            page("menus", "pause_map_buttons"),
             page("menus", "pause_brief"),
             page("menus", "pause_jason_lucia"),
             page("menus", "pause_progress"),
