@@ -374,6 +374,7 @@ impl Pages {
             g.set("__blobs", Function::new(ctx.clone(), |rect: String, opts: String| helper_blobs(&rect, &opts))?)?;
             g.set("__icon", Function::new(ctx.clone(), |rect: String, thr: f64| helper_icon(&rect, thr))?)?;
             g.set("__game_icon_at", Function::new(ctx.clone(), |rect: String| helper_game_icon_at(&rect))?)?;
+            g.set("__game_icon_scores", Function::new(ctx.clone(), |rect: String| helper_game_icon_scores(&rect))?)?;
             // (text helpers: bounded input, and "nothing" once the call is out of time, like the frame helpers)
             g.set("__letters", Function::new(ctx.clone(), |s: String| text_helper(&s, 4096, String::new(), || crate::screens::letters(&s)))?)?;
             g.set("__lang", Function::new(ctx.clone(), || crate::screens::words_lang())?)?;
@@ -670,6 +671,8 @@ function __frame() {
     icon: (r, threshold) => __icon(JSON.stringify(r), threshold ?? 140) || null,
     // which of the game's icons the app carries is there ("X", "L2" …), or "" (then f.icon cuts it)
     gameIconAt: (r) => __game_icon_at(JSON.stringify(r)),
+    // the carried icons most like the picture there, best first: [[name, score], …]
+    gameIconScores: (r) => JSON.parse(__game_icon_scores(JSON.stringify(r))),
     runs: (r, o) => JSON.parse(__runs(JSON.stringify(r), JSON.stringify(o || {}))),
     median: (r, o) => JSON.parse(__median(JSON.stringify(r), JSON.stringify(o || {}))),
     contrast: (r, against, share) => JSON.parse(__contrast(JSON.stringify(r), JSON.stringify(against), share ?? 0.125)),
@@ -1003,6 +1006,18 @@ fn helper_icon(rect: &str, thr: f64) -> Option<String> {
 }
 
 /// `f.gameIconAt(rect)`: the name of the game's icon the app carries that is there ("X", "L2" …), or "".
+/// `f.gameIconScores(rect)`: the carried icons most like the picture there, best first: `[[name, score], …]` (3).
+fn helper_game_icon_scores(rect: &str) -> String {
+    let Ok(r) = serde_json::from_str::<PxRect>(rect) else { return "[]".into() };
+    with_frame(|f, _| {
+        let (x, y) = (r.x.max(0.0) as u32, r.y.max(0.0) as u32);
+        let pic = crate::game_icons::Picture { w: f.w, h: f.h, rgba: &f.rgba };
+        let s = crate::game_icons::ranked(&pic, (x, y, r.w.max(0.0) as u32, r.h.max(0.0) as u32)).unwrap_or_default();
+        serde_json::to_string(&s.iter().take(3).map(|(n, v)| (n, (*v * 1000.0).round() / 1000.0)).collect::<Vec<_>>()).unwrap_or_else(|_| "[]".into())
+    })
+    .unwrap_or_else(|| "[]".into())
+}
+
 fn helper_game_icon_at(rect: &str) -> String {
     let Ok(r) = serde_json::from_str::<PxRect>(rect) else { return String::new() };
     with_frame(|f, _| {

@@ -1223,6 +1223,11 @@ window.AS = (() => {
     const W = root.clientWidth;
     const H = root.clientHeight;
     const shadow = (fs) => `0 ${(fs * 0.05).toFixed(1)}px ${(fs * 0.08).toFixed(1)}px rgba(0,0,0,0.8)`;
+    // a black outline round the letters (text-shadow in eight directions: works on the TVs' old browsers too)
+    const outlined = (fs) => {
+      const d = Math.max(1, fs * 0.06).toFixed(1);
+      return [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]].map((p) => `${p[0] * d}px ${p[1] * d}px 0 #000`).join(", ");
+    };
     const mk = (css, html) => {
       const d = document.createElement("div");
       // (no object spread in this file: 2018 Samsung TVs draw it too, Chromium 56)
@@ -1577,16 +1582,18 @@ window.AS = (() => {
           fontWeight: "700",
           fontSize: `${bfs}px`,
           color: b.fg || "#ffffff",
-          textShadow: shadow(bfs),
+          // (the map's: a black outline round the letters, as the game's, white or greyed out)
+          textShadow: b.outline ? outlined(bfs) : shadow(bfs),
         }, "");
         // (right to left: the icon on the right, as the game's after its word)
         if (b.icon && b.icon_rect) {
           const img = document.createElement("img");
           img.src = b.icon;
-          // (a greyed-out button: the clean white icon as dim as its grey word)
+          // (a greyed-out button: the game draws its icon solid, its white turned the grey of its word and its black
+          // outline and symbol kept: the clean white icon darkened to that grey, not made see-through)
           const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(b.fg || "");
           const lum = m ? Math.max(parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)) : 255;
-          Object.assign(img.style, { height: `${b.icon_rect.h * H}px`, width: `${b.icon_rect.w * W}px`, objectFit: "contain", flex: "none", display: "block", opacity: lum < 200 ? (lum / 255).toFixed(2) : "1" });
+          Object.assign(img.style, { height: `${b.icon_rect.h * H}px`, width: `${b.icon_rect.w * W}px`, objectFit: "contain", flex: "none", display: "block", filter: lum < 200 ? `brightness(${(lum / 255).toFixed(2)})` : "none" });
           item.appendChild(img);
         }
         const label = document.createElement("span");

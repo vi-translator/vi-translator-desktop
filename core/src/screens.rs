@@ -37,6 +37,8 @@ pub struct Button {
     /// Its translation beside the English (left of it), not above: buttons stacked one under the other
     /// (a failed mission's "RETRY CHECKPOINT ✕" …), with no room above each.
     pub beside: bool,
+    /// its letters outlined in black, as the game's are (the map's buttons, over the bright map)
+    pub outline: bool,
 }
 
 /// A piece of the game's UI covered by a translated replica (e.g. a menu tab): same box, same

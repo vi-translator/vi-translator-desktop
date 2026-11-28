@@ -6340,6 +6340,9 @@ function readHub(f, k) {
   return { tabs, menu };
 }
 
+// when the map's buttons were last told to be a PlayStation's (see mapPieces)
+const MAP_PS5 = { at: 0 };
+
 /** The map's buttons, the column bottom right ("RECENTER ⓛ", "2D VIEW ⓡ" … "EXIT ◎" or "CLOSE MENU ◎"): one under
  *  another, so each translation goes just left of its word, on its line, with the game's icon (as a failed
  *  mission's buttons). A button OCR misses in the column's read (the greyed-out "ADD MARKER", drawn in outline) is
@@ -6396,7 +6399,7 @@ function mapPieces(f) {
     const ar = word || (t && t[1]) || "";
     const h = p.y1 - p.y0;
     const ink = f.pixels({ x: p.x0, y: p.y0, w: p.x1 - p.x0, h }, { step: 1, bright: [95, 255], spread: [0, 28], median: true });
-    const b = { en: p.en, ar, fg: ink.median ? hex(ink.median) : "#ffffff", text_rect: f.box(p.x0, p.y0, p.x1 - p.x0, h), beside: true };
+    const b = { en: p.en, ar, fg: ink.median ? hex(ink.median) : "#ffffff", text_rect: f.box(p.x0, p.y0, p.x1 - p.x0, h), beside: true, outline: true };
     // its icon: the first shape just right of the word
     const ic = f.blobs({ x: p.x1 + 2, y: Math.max(p.y0 - h, 0), w: Math.round(h * 3), h: h * 3 }, { gap: 2, bright: [90, 255], spread: [0, 40] })
       .find((o) => o.h >= h * 0.8 && o.w >= h * 0.6 && o.w <= h * 2.8 && o.h <= h * 2);
@@ -6408,27 +6411,41 @@ function mapPieces(f) {
   // PS5 icons) each gets the app's clean icon, cut to its shape; otherwise each is cut from the frame by its shape,
   // or left out (never a square of the map behind it).
   const MAP_ICONS = { "RECENTER": "L3", "2D VIEW": "R3", "3D VIEW": "R3", "ADD MARKER": "SQUARE", "REMOVE MARKER": "SQUARE", "SET DESTINATION": "X", "EXIT": "CIRCLE", "CLOSE MENU": "CIRCLE" };
-  const ps5 = typeof f.gameIconAt === "function" && iconAt.some((ic) => !!f.gameIconAt(ic));
-  // (an icon not told from the bright map behind it: where the others are, the column's icons one under another)
+  // (an icon not told from the bright map behind it: where the others are, the column's icons one under another,
+  // else where the game draws them, just right of the words; the game's icon a little taller than its letters)
   const icS = iconAt.length ? iconAt.map((o) => o.h).sort((a, b) => a - b)[Math.floor(iconAt.length / 2)] : 0;
   const icX = iconAt.length ? iconAt.map((o) => o.x + o.w / 2).sort((a, b) => a - b)[Math.floor(iconAt.length / 2)] : 0;
   for (const b of out) {
-    let ic = b.ic;
+    const th = b.text_rect.h * f.h, mid = (b.text_rect.y + b.text_rect.h / 2) * f.h;
+    // (always the game's size: an outline found over a bright map can take some of the map with it)
+    const sz = Math.round(th * 2);
+    const cx = b.ic ? b.ic.x + b.ic.w / 2 : icS ? icX : (b.text_rect.x + b.text_rect.w) * f.w + th * 0.5 + sz / 2;
+    b.guessed = !b.ic;
+    b.found = b.ic;
+    b.ic = { x: Math.round(cx - sz / 2), y: Math.round(mid - sz / 2), w: sz, h: sz };
+  }
+  // On a PlayStation (any icon of the column told as one of the app's PS5 icons, where it was found or where it
+  // should be) each gets the app's clean icon by its button's name; otherwise each is cut from the frame by its shape,
+  // or left out (never a square of the map behind it).
+  // (over a bright map the match is weak, but still best for the right icon: two buttons whose expected icon comes first
+  // say it's a PlayStation's column; an app without `gameIconScores`: one icon told for sure)
+  const told = (r) => !!r && !!f.gameIconAt(r);
+  const first = (b, r) => !!r && ((f.gameIconScores(r)[0] || [])[0] === MAP_ICONS[b.en]);
+  const seen = typeof f.gameIconAt === "function" && (typeof f.gameIconScores === "function"
+    ? out.filter((b) => told(b.found) || told(b.ic) || first(b, b.found) || first(b, b.ic)).length >= 2
+    : out.some((b) => told(b.found) || told(b.ic)));
+  // (the console doesn't change while the app runs: once told, a map over a very bright place keeps the icons)
+  if (seen) MAP_PS5.at = Date.now();
+  const ps5 = seen || MAP_PS5.at > 0;
+  for (const b of out) {
+    const ic = b.ic, guessed = b.guessed;
     delete b.ic;
-    let guessed = false;
-    if (!ic) {
-      // (none found at all: where the game draws them, just right of the words, a little taller than the letters)
-      const th = b.text_rect.h * f.h, mid = (b.text_rect.y + b.text_rect.h / 2) * f.h;
-      const sz = icS || Math.round(th * 1.45), cx = icS ? icX : (b.text_rect.x + b.text_rect.w) * f.w + th * 0.45 + sz / 2;
-      ic = { x: Math.round(cx - sz / 2), y: Math.round(mid - sz / 2), w: sz, h: sz };
-      guessed = true;
-    }
-    if (ic) {
-      b.icon_rect = f.box(ic.x, ic.y, ic.w, ic.h);
-      const name = (ps5 && MAP_ICONS[b.en]) || (typeof f.gameIconAt === "function" && f.gameIconAt(ic));
-      const icon = (name && vi.gameIcon(name)) || (!guessed && f.icon(ic, 140));
-      if (icon) b.icon = icon;
-    }
+    delete b.guessed;
+    delete b.found;
+    b.icon_rect = f.box(ic.x, ic.y, ic.w, ic.h);
+    const name = (ps5 && MAP_ICONS[b.en]) || (typeof f.gameIconAt === "function" && f.gameIconAt(ic));
+    const icon = (name && vi.gameIcon(name)) || (!guessed && f.icon(ic, 140));
+    if (icon) b.icon = icon;
   }
   return out;
 }
